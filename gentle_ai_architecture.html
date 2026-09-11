@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gentle AI — Radiografía de Arquitectura (5 Capas)</title>
+  <style>
+    :root[data-theme="dark"] {
+      --bg-color: #090d16;
+      --panel-bg: #111726;
+      --panel-border: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-violet: #8b5cf6;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --card-hover: #1e293b;
+      --grid-line: rgba(255, 255, 255, 0.03);
+    }
+
+    :root[data-theme="light"] {
+      --bg-color: #f8fafc;
+      --panel-bg: #ffffff;
+      --panel-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-emerald: #059669;
+      --accent-violet: #7c3aed;
+      --accent-amber: #d97706;
+      --accent-rose: #e11d48;
+      --card-hover: #f1f5f9;
+      --grid-line: rgba(0, 0, 0, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background-image: 
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 32px 32px;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid var(--panel-border);
+      background-color: rgba(17, 23, 38, 0.85);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: white;
+      font-size: 1.1rem;
+      box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+    }
+
+    .brand-text h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-text p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      color: var(--text-main);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--card-hover);
+      border-color: var(--accent-cyan);
+    }
+
+    .btn.active {
+      background: var(--accent-cyan);
+      color: white;
+      border-color: var(--accent-cyan);
+    }
+
+    .main-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      padding: 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+      flex: 1;
+    }
+
+    .diagram-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .layer-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .layer-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 5px;
+      height: 100%;
+      background: var(--layer-color, var(--accent-cyan));
+    }
+
+    .layer-card:hover, .layer-card.selected {
+      border-color: var(--layer-color, var(--accent-cyan));
+      transform: translateY(-2px);
+      box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.3);
+    }
+
+    .layer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .layer-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--layer-color, var(--accent-cyan));
+      border: 1px solid currentColor;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .layer-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .components-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .component-box {
+      background: rgba(0, 0, 0, 0.15);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .component-box:hover {
+      background: var(--card-hover);
+      border-color: var(--layer-color);
+    }
+
+    .component-name {
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .component-desc {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    .flow-connector {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 18px;
+      position: relative;
+    }
+
+    .flow-line {
+      width: 2px;
+      height: 100%;
+      background: var(--panel-border);
+      position: relative;
+    }
+
+    .flow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      position: absolute;
+      animation: flowPulse 2s infinite ease-in-out;
+    }
+
+    @keyframes flowPulse {
+      0% { top: 0; opacity: 0; }
+      50% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+
+    .inspector-panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 24px;
+      position: sticky;
+      top: 100px;
+      height: calc(100vh - 140px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .inspector-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 12px;
+      color: var(--accent-cyan);
+    }
+
+    .inspector-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .inspector-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .inspector-text {
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: var(--text-main);
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--panel-border);
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 0.82rem;
+      color: var(--accent-cyan);
+    }
+
+    @media (max-width: 1024px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+      }
+      .inspector-panel {
+        position: static;
+        height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">GA</div>
+      <div class="brand-text">
+        <h1>Radiografía de Gentle AI</h1>
+        <p>Harness Engineering & Spec-Driven Development en Antigravity</p>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn active" id="btn-all" onclick="filterLayers('all')">Todas las Capas</button>
+      <button class="btn" id="btn-sdd" onclick="filterLayers('sdd')">Workflow SDD</button>
+      <button class="btn" id="btn-mem" onclick="filterLayers('mem')">Memoria Engram</button>
+      <button class="btn" onclick="toggleTheme()">🌗 Tema</button>
+    </div>
+  </header>
+
+  <main class="main-layout">
+    <div class="diagram-container">
+      
+      <!-- CAPA 1 -->
+      <div class="layer-card selected" id="layer-card-1" style="--layer-color: var(--accent-cyan);" onclick="selectLayer(1)">
+        <div class="layer-header">
+          <div class="layer-title">Capa 1: Motor de Ejecución & TUI Runtime</div>
+          <span class="layer-badge">Core Runtime</span>
+        </div>
+        <p class="component-desc">CLI ejecutable nativo en Go con interfaz de terminal (Bubbletea). Garantiza la seguridad transaccional del workspace y snapshots de respaldo.</p>
+        <div class="components-grid">
+          <div class="component-box">
+            <div class="component-name">⚙️ gentle-ai.exe</div>
+            <div class="component-desc">Motor principal en Go. Aislamiento de entorno y bootstrap.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">📦 Tar Snapshot Engine</div>
+            <div class="component-desc">Backups transaccionales `.tar.gz` antes de operaciones destructivas.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">💻 Bubbletea TUI</div>
+            <div class="component-desc">Interfaz interactiva de usuario en consola con renderizado fluido.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-connector"><div class="flow-line"><div class="flow-dot"></div></div></div>
+
+      <!-- CAPA 2 -->
+      <div class="layer-card" id="layer-card-2" style="--layer-color: var(--accent-emerald);" onclick="selectLayer(2)">
+        <div class="layer-header">
+          <div class="layer-title">Capa 2: Memoria Persistente Cruzada (Engram Go MCP)</div>
+          <span class="layer-badge">Persistent Context</span>
+        </div>
+        <p class="component-desc">Servidor MCP local en Go ejecutándose vía stdio IPC. Elimina la amnesia entre sesiones y tras compactoras mediante almacenamiento por tópicos.</p>
+        <div class="components-grid">
+          <div class="component-box">
+            <div class="component-name">🧠 engram.exe (stdio)</div>
+            <div class="component-desc">Servidor MCP persistente. Canal de comunicación JSON-RPC local.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">📌 Topic Key Store</div>
+            <div class="component-desc">Indexación por temas clave (`sdd/...`, `architecture/...`, `bugfix/...`).</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">📝 Session Summarizer</div>
+            <div class="component-desc">Captura obligatoria de `mem_session_summary` previo al cierre.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-connector"><div class="flow-line"><div class="flow-dot" style="animation-delay: 0.5s;"></div></div></div>
+
+      <!-- CAPA 3 -->
+      <div class="layer-card" id="layer-card-3" style="--layer-color: var(--accent-violet);" onclick="selectLayer(3)">
+        <div class="layer-header">
+          <div class="layer-title">Capa 3: Orquestación SDD (Spec-Driven Development)</div>
+          <span class="layer-badge">Workflow DAG</span>
+        </div>
+        <p class="component-desc">Pipeline rígido de planificación previa a la implementación. Fuerza la construcción del modelo mental y la arquitectura antes de tocar código.</p>
+        <div class="components-grid">
+          <div class="component-box">
+            <div class="component-name">🔍 Explore & Propose</div>
+            <div class="component-desc">Fases preliminares de investigación y propuesta formal de cambio.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">📐 Spec & Design</div>
+            <div class="component-desc">Especificaciones detalladas de requerimientos y decisiones técnicas.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">✅ Tasks ➔ Apply ➔ Verify</div>
+            <div class="component-desc">Descomposición en tareas, ejecución atómica y verificación estricta.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-connector"><div class="flow-line"><div class="flow-dot" style="animation-delay: 1s;"></div></div></div>
+
+      <!-- CAPA 4 -->
+      <div class="layer-card" id="layer-card-4" style="--layer-color: var(--accent-amber);" onclick="selectLayer(4)">
+        <div class="layer-header">
+          <div class="layer-title">Capa 4: Customization Engine & Progressive Skill Resolver</div>
+          <span class="layer-badge">Dynamic Context</span>
+        </div>
+        <p class="component-desc">Jerarquía de descubrimiento de reglas y carga progresiva de conocimientos bajo demanda para no inflar la ventana de contexto inútilmente.</p>
+        <div class="components-grid">
+          <div class="component-box">
+            <div class="component-name">📋 Skill Registry</div>
+            <div class="component-desc">Registro centralizado `.atl/skill-registry.md` de habilidades del proyecto.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">⚡ Compact Rules</div>
+            <div class="component-desc">Inyección directa de reglas compactas en lugar de archivos masivos.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">🎯 Discovery Hierarchy</div>
+            <div class="component-desc">Prioridad: Workspace (`.agents/`) ➔ Global (`~/.gemini/`) ➔ Built-in.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-connector"><div class="flow-line"><div class="flow-dot" style="animation-delay: 1.5s;"></div></div></div>
+
+      <!-- CAPA 5 -->
+      <div class="layer-card" id="layer-card-5" style="--layer-color: var(--accent-rose);" onclick="selectLayer(5)">
+        <div class="layer-header">
+          <div class="layer-title">Capa 5: Harness Engineering & Strict Quality Protocol</div>
+          <span class="layer-badge">Verification Harness</span>
+        </div>
+        <p class="component-desc">Garantía de calidad empírica en tiempo de ejecución. Strict TDD mode, cero parches sintomáticos y verificación con tests reales.</p>
+        <div class="components-grid">
+          <div class="component-box">
+            <div class="component-name">🧪 Strict TDD Engine</div>
+            <div class="component-desc">Ciclo Red-Green-Refactor innegociable cuando el proyecto lo soporta.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">🌐 Remote MCPs</div>
+            <div class="component-desc">Integración con `Context7` para documentación web de librerías en vivo.</div>
+          </div>
+          <div class="component-box">
+            <div class="component-name">⚖️ Empiric Verifier</div>
+            <div class="component-desc">Validación mediante comandos de terminal reales (no asunciones).</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Inspector Panel Sidebar -->
+    <aside class="inspector-panel" id="inspector">
+      <div class="inspector-title" id="insp-title">Capa 1: Motor de Ejecución & TUI Runtime</div>
+      
+      <div class="inspector-section">
+        <div class="inspector-label">Descripción General</div>
+        <p class="inspector-text" id="insp-desc">El binario `gentle-ai.exe` está construido en Go y utiliza la librería Bubbletea para proveer una interfaz gráfica de consola fluida. Su objetivo principal es asegurar la integridad del espacio de trabajo mediante snapshots comprimidos `.tar.gz` antes de permitir ediciones masivas.</p>
+      </div>
+
+      <div class="inspector-section">
+        <div class="inspector-label">Componentes Clave</div>
+        <div class="pill-list" id="insp-pills">
+          <span class="pill">Go Language</span>
+          <span class="pill">Bubbletea TUI</span>
+          <span class="pill">Transactional Backups</span>
+          <span class="pill">Tar Snapshot</span>
+          <span class="pill">Environment Isolation</span>
+        </div>
+      </div>
+
+      <div class="inspector-section">
+        <div class="inspector-label">Filosofía Arquitectónica</div>
+        <p class="inspector-text" id="insp-philo"><code>PRINCIPIO:</code> El código no se modifica directamente sobre el sistema de archivos sin una red de seguridad transaccional preexistente.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const layerData = {
+      1: {
+        title: "Capa 1: Motor de Ejecución & TUI Runtime",
+        desc: "El binario `gentle-ai.exe` está construido en Go y utiliza la librería Bubbletea para proveer una interfaz gráfica de consola fluida. Su objetivo principal es asegurar la integridad del espacio de trabajo mediante snapshots comprimidos `.tar.gz` antes de permitir ediciones masivas.",
+        pills: ["Go Language", "Bubbletea TUI", "Transactional Backups", "Tar Snapshot", "Environment Isolation"],
+        philo: "El código no se modifica directamente sobre el sistema de archivos sin una red de seguridad transaccional preexistente."
+      },
+      2: {
+        title: "Capa 2: Memoria Persistente Cruzada (Engram MCP)",
+        desc: "Engram corre como un proceso independiente en Go que se comunica con el agente mediante la especificación de stdio de MCP (Model Context Protocol). Indexa observaciones por claves de tópico (`topic_key`) para recuperar decisiones de arquitectura tomadas hace días o semanas.",
+        pills: ["stdio IPC", "MCP Protocol", "Topic Keys", "Engram SQLite/Store", "Compaction Recovery"],
+        philo: "La amnesia del modelo se combate con persistencia estructurada fuera del prompt context."
+      },
+      3: {
+        title: "Capa 3: Orquestación SDD (Spec-Driven Development)",
+        desc: "Cada cambio sustancial debe pasar por el Grafo Dirigido Acíclico (DAG) de SDD: `explore` ➔ `propose` ➔ `spec` / `design` ➔ `tasks` ➔ `apply` ➔ `verify` ➔ `archive`. Mantiene el estado en Engram o archivos OpenSpec.",
+        pills: ["DAG Workflow", "Delta Specs", "Design Docs", "Task Breakdown", "Archive Delta"],
+        philo: "Ninguna línea de producción se escribe sin antes haber acordado las especificaciones de negocio y el diseño de arquitectura."
+      },
+      4: {
+        title: "Capa 4: Customization & Progressive Skill Resolver",
+        desc: "El `skill-resolver` analiza el código objetivo y carga solo las reglas compactas strictly necesarias (ej: React, Chrome Extensions, Go Testing). Evita inflar la ventana de contexto del LLM de forma prematura.",
+        pills: ["Progressive Disclosure", "Skill Registry", "Compact Rules", "Workspace Overrides", "Global Rules"],
+        philo: "Menos tokens inútiles en contexto = Mayor precisión de razonamiento del LLM."
+      },
+      5: {
+        title: "Capa 5: Harness Engineering & Quality Protocol",
+        desc: "Incorpora Strict TDD Mode (Red-Green-Refactor obligatorio), pruebas en tiempo de ejecución de comandos reales, y prohíbe enmascarar errores sintomáticos o generar parches superficiales sin prueba de causa raíz.",
+        pills: ["Strict TDD", "Empirical Proof", "Context7 MCP", "No Fake Attributions", "Senior Architect Persona"],
+        philo: "El éxito se declara ÚNICAMENTE cuando existe evidencia empírica de ejecución limpia en la terminal."
+      }
+    };
+
+    function selectLayer(layerId) {
+      document.querySelectorAll('.layer-card').forEach((card, idx) => {
+        if (idx + 1 === layerId) {
+          card.classList.add('selected');
+        } else {
+          card.classList.remove('selected');
+        }
+      });
+
+      const data = layerData[layerId];
+      if (data) {
+        document.getElementById('insp-title').innerText = data.title;
+        document.getElementById('insp-desc').innerText = data.desc;
+        document.getElementById('insp-philo').innerHTML = `<code>PRINCIPIO:</code> ${data.philo}`;
+        
+        const pillsContainer = document.getElementById('insp-pills');
+        pillsContainer.innerHTML = data.pills.map(p => `<span class="pill">${p}</span>`).join('');
+      }
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+    }
+
+    function filterLayers(mode) {
+      document.querySelectorAll('.controls .btn').forEach(btn => btn.classList.remove('active'));
+      
+      const cards = document.querySelectorAll('.layer-card');
+
+      if (mode === 'all') {
+        document.getElementById('btn-all').classList.add('active');
+        cards.forEach(c => c.style.opacity = '1');
+      } else if (mode === 'sdd') {
+        document.getElementById('btn-sdd').classList.add('active');
+        cards.forEach((c, idx) => c.style.opacity = (idx === 2 || idx === 3) ? '1' : '0.25');
+      } else if (mode === 'mem') {
+        document.getElementById('btn-mem').classList.add('active');
+        cards.forEach((c, idx) => c.style.opacity = (idx === 0 || idx === 1) ? '1' : '0.25');
+      }
+    }
+  </script>
+</body>
+</html>
