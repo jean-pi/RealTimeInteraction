@@ -84,10 +84,11 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 * **RN-03.2.** Los roles son estructurales y no permutables.
 
 ### RN-04: Capacidad y Política de Aforo
-* **RN-04.1.** El aforo máximo concurrente es de **10 usuarios conectados simultáneamente** por lienzo.
-* **RN-04.2. Reserva Garantizada del Anfitrión:** El Anfitrión siempre tiene garantizado el ingreso a su propio lienzo. La sala admite un máximo de 9 invitados concurrentes si el anfitrión está conectado, o hasta 10 invitados si el anfitrión está ausente. Si la sala está llena con 10 invitados y el anfitrión se conecta, el sistema debe garantizar su cupo prioritario.
-* **RN-04.3. Rechazo en Puerta (Sala Llena):** Si la sala alcanza los 10 usuarios conectados, cualquier intento de conexión entrante es rechazado inmediatamente indicando que la sala ha alcanzado su capacidad máxima.
-* **RN-04.4.** Solo se admite a un nuevo participante cuando un cupo se libere por salida voluntaria, desconexión confirmada o expulsión.
+* **RN-04.1.** El aforo máximo concurrente de la sala está parametrizado por la capacidad asignada al lienzo (`aforo_maximo`).
+* **RN-04.2. Régimen Inicial de Construcción:** Durante esta etapa de desarrollo, todas las salas se aprovisionan con una capacidad máxima de **10 usuarios conectados simultáneamente sin costo ni barreras de pago**. El modelo de datos y las validaciones de conexión quedan desacoplados para admitir límites diferenciados en el futuro (ej. 2 concurrentes en capa gratuita y 10 en planes ampliados) mediante una simple parametrización de campo sin requerir refactorizaciones de esquema.
+* **RN-04.3. Reserva Garantizada del Anfitrión:** El Anfitrión siempre tiene garantizado el ingreso a su propio lienzo. La sala admite un máximo de `aforo_maximo - 1` invitados concurrentes si el anfitrión está conectado, o hasta `aforo_maximo` invitados si el anfitrión está ausente. Si la sala está llena con invitados y el anfitrión se conecta, el sistema garantiza su cupo prioritario.
+* **RN-04.4. Rechazo en Puerta (Sala Llena):** Si la sala alcanza su aforo concurrente activo, cualquier intento de conexión entrante es rechazado inmediatamente indicando que la sala ha alcanzado su capacidad máxima (`ROOM_CAPACITY_REACHED`).
+* **RN-04.5.** Solo se admite a un nuevo participante cuando un cupo se libere por salida voluntaria, desconexión confirmada o expulsión.
 
 ### RN-05: Ciclo de Vida del Acceso (Membresía Persistente)
 * **RN-05.1.** El canje exitoso de una invitación otorga **membresía persistente** al lienzo.
@@ -198,6 +199,8 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 * **Atributos:**
   * `id`: Identificador único de la sala (UUID).
   * `propietario_id`: Llave foránea inmutable hacia el `Usuario` creador (Anfitrión).
+  * `aforo_maximo`: Entero positivo que delimita la concurrencia máxima permitida (valor inicial: `10` para la fase de construcción activa; preparado para segmentación freemium de 2 usuarios en etapas comerciales).
+  * `estado_operativo`: Enumerador [`ACTIVE`, `DORMANT`] para optimización de cómputo en servidor.
   * `creado_en`: Timestamp de creación.
 
 #### Entidad: `MembresiaLienzo` (CanvasMembership)
@@ -287,17 +290,17 @@ Modela la vigencia del enlace y código de acceso:
 ```
 
 ### 6.4. Estado de Aforo de la Sala (Control de Capacidad)
-Modela la compuerta de admisión en tiempo real frente al límite estricto de 10 concurrentes:
+Modela la compuerta de admisión en tiempo real frente al límite dinámico de concurrencia (`aforo_maximo`):
 
 ```
         ┌────────────────────────────────────────────────────────┐
         │                                                        │
         ▼                                                        │
-  [ DISPONIBLE ] (Conectados < 10)                               │
+  [ DISPONIBLE ] (Conectados < aforo_maximo)                     │
         │                                                        │
-        │ Conexión entrante alcanza el usuario número 10         │
+        │ Conexión entrante alcanza el aforo_maximo              │
         ▼                                                        │
-     [ LLENA ] (Conectados == 10)                                │
+      [ LLENA ] (Conectados == aforo_maximo)                     │
         │        │                                               │
         │        │ Intento de conexión entrante: RECHAZO INMEDIATO
         │        │                                               │
@@ -306,3 +309,22 @@ Modela la compuerta de admisión en tiempo real frente al límite estricto de 10
         ▼
   [ DISPONIBLE ]
 ```
+
+### 6.5. Ciclo de Vida Operativo de la Sala (Hibernación: Active vs. Dormant)
+Modela el ciclo de vida en tiempo de ejecución del servidor para garantizar costo computacional cero ($0) cuando no hay participantes:
+
+```
+             [ DORMANT ] (Hibernada en BD / Cero Cómputo)
+                  │
+                  │ Handshake WebSocket entrante válido (Conectados > 0)
+                  ▼
+              [ ACTIVE ] (Instancia en Memoria / Canales Pub-Sub Abiertos)
+                  │
+                  │ Desconexión del último participante (Conectados == 0)
+                  ▼
+             [ DORMANT ] (Desalojo de Memoria y Cierre de Canales)
+```
+
+* **DORM-01. Desalojo Inmediato de Recursos:** Cuando el conteo de sockets concurrentes de una sala llega a cero (`COUNT(presencias_activas) === 0`), la sala transiciona a estado `DORMANT`. El servidor destruye la instancia en memoria, cancela las suscripciones pub/sub y libera descriptores de red.
+* **DORM-02. Reactivación Atómica y Rehidratación:** Cualquier intento de conexión válido hacia una sala en estado `DORMANT` despierta la sala automáticamente, rehidratando su estado persistente desde la base de datos a memoria en menos de 100 ms antes de admitir al participante.
+* **DORM-03. Independencia de la Presencia del Anfitrión:** La sala permanece en estado `ACTIVE` mientras exista al menos un participante conectado (sea invitado o anfitrión). La ausencia del anfitrión o su migración hacia otra sala ajena no altera el estado `ACTIVE` si sus invitados continúan dentro.
