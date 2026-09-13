@@ -295,64 +295,9 @@ La mayor diferencia arquitectónica entre estos tres modelos radica en **dónde 
 
 ---
 
-# Fundamentos de Domain-Driven Design (DDD)
+## ¿Qué es Domain-Driven Design (DDD)?
 
-Filosofía de modelado de software que subordina la tecnología a la lógica y reglas del negocio.
+**Domain-Driven Design (DDD)** es una disciplina de diseño de software (formalizada por Eric Evans en 2003) donde la estructura y el vocabulario del código reflejan fielmente el modelo conceptual del negocio, subordinando la tecnología, frameworks y bases de datos a meros detalles de implementación.
 
----
+* 📄 **Referencia Externa:** [Domain-Driven Design Reference (Eric Evans, 2015)](https://www.domainlanguage.com/ddd/reference/)
 
-## 1. ¿Qué es Domain-Driven Design?
-
-Introducido formalmente por **Eric Evans en 2003**, el **Diseño Guiado por el Dominio (DDD)** no es un framework, una librería ni una metodología ágil; es una **filosofía de desarrollo de software y una disciplina de modelado**.
-
-Su premisa central establece que:
-> *"La complejidad principal del software reside en la complejidad intrínseca del dominio del problema, jamás en la tecnología utilizada para resolverlo. Por ende, la estructura del código debe reflejar literalmente el modelo mental y los procesos del negocio."*
-
-En DDD, bases de datos, APIs, protocolos de red y frameworks de frontend son tratados como **detalles de infraestructura subordinados**; el corazón palpitante del sistema es el **Modelo de Dominio**.
-
----
-
-## 2. Los Dos Pilares de DDD
-
-DDD se divide en dos dimensiones complementarias:
-
-### A. DDD Estratégico (La Vista Panorámica)
-Define cómo se delimita y organiza el sistema a gran escala antes de escribir código:
-1. **Lenguaje Ubicuo (Ubiquitous Language):** Un vocabulario riguroso, explícito y no ambiguo compartido por expertos del negocio y desarrolladores. Si el negocio habla de *"Afiliar Miembro"*, el código debe tener un método `afiliarMiembro()`, jamás un genérico `insertUserRow()`.
-2. **Contextos Delimitados (Bounded Contexts):** Fronteras lingüísticas y conceptuales claras donde un término significa exactamente una cosa. La entidad `Usuario` en el contexto de Facturación modela datos fiscales; en el contexto de Seguridad modela contraseñas y tokens; en el contexto de Notificaciones modela canales de mensajería. Intentar forzar un modelo único global para toda la empresa es el camino directo al fracaso.
-3. **Mapas de Contexto (Context Maps):** Diagramas formales que documentan cómo se comunican y relacionan los diferentes Bounded Contexts (ej. Cliente-Proveedor, Núcleo Compartido, Capa Anti-Corrupción).
-
-### B. DDD Táctico (Los Bloques de Construcción en Código)
-Patrones de diseño concretos para implementar las reglas de negocio dentro de un Bounded Context:
-
-| Patrón Táctico | Definición Formal | Características Clave |
-| :--- | :--- | :--- |
-| **Entidad (Entity)** | Objeto con un hilo de continuidad e identidad única inmutable a lo largo del tiempo. | Dos entidades son iguales si sus `ID` coinciden, aunque todos sus demás atributos cambien. |
-| **Objeto de Valor (Value Object)** | Objeto inmutable sin identidad conceptual, definido exclusivamente por sus atributos. | Si dos objetos tienen los mismos valores, son idénticos e intercambiables (ej. `Moneda`, `Email`, `RangoFechas`). |
-| **Agregado (Aggregate)** | Racimo de Entidades y Value Objects tratado como una unidad indivisible de consistencia transaccional. | Posee una **Raíz de Agregado (Aggregate Root)**. El exterior solo puede comunicarse a través de la raíz para proteger sus invariantes. |
-| **Servicio de Dominio (Domain Service)** | Operación de negocio pura que no encaja de forma natural en una sola entidad. | Sin estado (*stateless*); orquesta lógica pura que involucra a múltiples agregados. |
-| **Repositorio (Repository)** | Puerto/interfaz que simula una colección en memoria para recuperar y persistir raíces de agregado. | Desacopla el dominio de los queries SQL o motores de persistencia. |
-| **Evento de Dominio (Domain Event)** | Registro inmutable de un hecho relevante que ya ocurrió en el negocio. | Nombrado en pasado (`OrdenPagada`, `InvitacionCanjeada`); desacopla la reacción entre contextos. |
-
----
-
-## 3. El Problema que Erradica: El Modelo de Dominio Anémico
-
-El mayor antipatrón que DDD destruye es el **Modelo de Dominio Anémico (Anemic Domain Model)**:
-* Clases de entidades reducidas a meras bolsas de datos pasivas con `getters` y `setters` públicos.
-* Lógica de negocio dispersa y duplicada en controladores, servicios de aplicación o procedimientos almacenados.
-* En DDD, las entidades son **ricas en comportamiento**: validan sus propios invariantes y exponen métodos que representan acciones de negocio expresivas (`aprobar()`, `cancelar()`, `renovar()`), prohibiendo la mutación arbitraria de su estado desde el exterior.
-
----
-
-## 4. Referencias Fundamentales
-
-* 📘 *Domain-Driven Design: Tackling Complexity in the Heart of Software* (Eric Evans, Addison-Wesley, 2003) — La obra fundacional (*El Libro Azul*).
-* 📘 *Implementing Domain-Driven Design* (Vaughn Vernon, Addison-Wesley, 2013) — Guía práctica de implementación (*El Libro Rojo*).
-* 📄 *Domain-Driven Design Reference: Definitions and Pattern Summaries* (Eric Evans, Domain Language, 2015).
-* 📘 *Learning Domain-Driven Design: Aligning Software Architecture and Business Strategy* (Vlad Khononov, O'Reilly, 2021).
-
----
-
-> 💡 **Invariante Fundamental:**
-> *"Si un concepto crítico para el negocio no tiene un nombre explícito en tu código, tu modelo de dominio está incompleto. El software bien diseñado no traduce el negocio: ES el negocio modelado con rigor formal."*
