@@ -149,65 +149,85 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 ## 5. Entidades del Dominio (Modelo de Datos)
 
 ```
-┌─────────────────┐       1:1        ┌─────────────────┐
-│     Usuario     │ ───────────────> │  LienzoPersonal │
-│     (User)      │                  │  (PersonalRoom) │
-└─────────────────┘                  └─────────────────┘
+                               ┌────────────────────────┐
+                               │     InvitacionSala     │
+                               │   (CanvasInvitation)   │
+                               │  (Código y Enlace URL) │
+                               └────────────────────────┘
+                                           │ 1:1
+                                           ▼
+┌─────────────────┐       1:1        ┌────────────────────────┐
+│     Usuario     │ ───────────────> │       LienzoSala       │
+│     (User)      │ <─────────────── │      (CanvasRoom)      │
+└─────────────────┘  (Es Propietario)└────────────────────────┘
         │ 1                                   │ 1
         │                                     │
         │ N                                   │ N
         ▼                                     ▼
-┌─────────────────┐       N:1        ┌─────────────────┐       1:1        ┌─────────────────┐
-│ MembresiaLienzo │ <─────────────── │   LienzoSala    │ ───────────────> │ InvitacionSala  │
-│(CanvasMembership│                  │  (CanvasRoom)   │                  │(CanvasInvitation│
-└─────────────────┘                  └─────────────────┘                  └─────────────────┘
-        │ 1
-        │ 
-        ▼ [En Memoria / Redis]
-┌─────────────────┐
-│ SesionPresencia │
-│(PresenceSession)│
-└─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       MembresiaLienzo                       │
+│                     (CanvasMembership)                      │
+│    (Tabla pivote N:M: ¿Quién tiene permiso para entrar?)    │
+│            Roles: HOST (Dueño) | GUEST (Invitado)           │
+└─────────────────────────────────────────────────────────────┘
+                               │ 1
+                               │
+                               ▼ [En Memoria / Redis / WebSockets]
+┌─────────────────────────────────────────────────────────────┐
+│                       SesionPresencia                       │
+│                      (PresenceSession)                      │
+│       (¿Quiénes de los miembros están ONLINE ahora mismo?)  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 5.1. Definición de Entidades y Atributos
 
 #### Entidad: `Usuario` (User)
-* `id`: Identificador único inmutable (UUID).
-* `email`: Correo electrónico verificado.
-* `nombre_completo`: Nombre público en la plataforma.
-* `avatar_url`: Imagen o representación visual.
-* `perfil_completo`: Booleano (true indica que completó el onboarding).
-* `lienzo_personal_id`: Llave foránea hacia su propio `LienzoSala`.
-* `lienzo_actual_id`: Llave foránea que apunta a la sala que se abrirá al iniciar sesión.
+* **Descripción de Dominio:** Representa a la persona autenticada dentro de la plataforma. Es la entidad raíz de identidad y titularidad. Cada usuario posee de por vida un único lienzo personal que actúa como su espacio base inmutable, y mantiene un puntero dinámico (*Lienzo Actual*) que determina qué sala se abre de forma predeterminada al ingresar a la aplicación.
+* **Atributos:**
+  * `id`: Identificador único inmutable (UUID).
+  * `email`: Correo electrónico verificado.
+  * `nombre_completo`: Nombre público en la plataforma.
+  * `avatar_url`: Imagen o representación visual.
+  * `perfil_completo`: Booleano (true indica que completó el onboarding).
+  * `lienzo_personal_id`: Llave foránea hacia su propio `LienzoSala`.
+  * `lienzo_actual_id`: Llave foránea que apunta a la sala que se abrirá al iniciar sesión.
 
 #### Entidad: `LienzoSala` (CanvasRoom)
-* `id`: Identificador único de la sala (UUID).
-* `propietario_id`: Llave foránea inmutable hacia el `Usuario` creador (Anfitrión).
-* `creado_en`: Timestamp de creación.
+* **Descripción de Dominio:** Es la entidad física y única que modela un espacio colaborativo en persistencia. No existe una distinción en tablas entre "lienzo personal" y "sala compartida": todo lienzo es un registro en `LienzoSala` con un único propietario permanente (`HOST`). Actúa como el contenedor espacial sobre el cual se orquestan las credenciales de invitación, las membresías de acceso y las sesiones de presencia en tiempo real.
+* **Atributos:**
+  * `id`: Identificador único de la sala (UUID).
+  * `propietario_id`: Llave foránea inmutable hacia el `Usuario` creador (Anfitrión).
+  * `creado_en`: Timestamp de creación.
 
 #### Entidad: `MembresiaLienzo` (CanvasMembership)
-* `id`: Identificador de membresía (UUID).
-* `lienzo_id`: Referencia a la sala.
-* `usuario_id`: Referencia al usuario admitido.
-* `rol`: Enumerador inmutable [`HOST`, `GUEST`].
-* `estado`: Enumerador mutable [`ACTIVE`, `REVOKED`].
-* `fecha_admision`: Timestamp en que se canjeó la invitación inicial.
+* **Descripción de Dominio:** Resuelve la relación muchos-a-muchos ($N:M$) entre usuarios y salas, formalizando el contrato de autorización y pertenencia persistente. Define si un usuario tiene derecho a ingresar a una sala sin requerir un nuevo canje de invitación. Asigna el rol estructural e inmutable (`HOST` para el creador titular, `GUEST` para invitados) y permite revocar el acceso mediante expulsión o salida voluntaria.
+* **Atributos:**
+  * `id`: Identificador de membresía (UUID).
+  * `lienzo_id`: Referencia a la sala.
+  * `usuario_id`: Referencia al usuario admitido.
+  * `rol`: Enumerador inmutable [`HOST`, `GUEST`].
+  * `estado`: Enumerador mutable [`ACTIVE`, `REVOKED`].
+  * `fecha_admision`: Timestamp en que se canjeó la invitación inicial.
 
 #### Entidad: `InvitacionSala` (CanvasInvitation)
-* `id`: Identificador único (UUID).
-* `lienzo_id`: Referencia unívoca a la sala correspondiente.
-* `codigo_acceso`: Cadena alfanumérica de 6 caracteres en mayúsculas (ej. `K9X2P4`). Índice único en base de datos.
-* `token_enlace`: Hash criptográfico seguro para acceso por URL.
-* `estado`: Enumerador [`ACTIVE`, `REVOKED`].
-* `actualizado_en`: Timestamp de última renovación.
+* **Descripción de Dominio:** Modela el mecanismo de admisión controlada a una sala. Mantiene el par de credenciales vigentes (código alfanumérico de 6 caracteres y token de enlace seguro) asociadas a un `LienzoSala`. Su estado y credenciales se renuevan de manera atómica por decisión exclusiva del Anfitrión, invalidando credenciales previas sin expulsar ni alterar las membresías activas ya concedidas.
+* **Atributos:**
+  * `id`: Identificador único (UUID).
+  * `lienzo_id`: Referencia unívoca a la sala correspondiente.
+  * `codigo_acceso`: Cadena alfanumérica de 6 caracteres en mayúsculas (ej. `K9X2P4`). Índice único en base de datos.
+  * `token_enlace`: Hash criptográfico seguro para acceso por URL.
+  * `estado`: Enumerador [`ACTIVE`, `REVOKED`].
+  * `actualizado_en`: Timestamp de última renovación.
 
 #### Entidad Efímera: `SesionPresencia` (PresenceSession - Estado en Memoria / Redis)
-* `socket_id`: Identificador de la conexión activa.
-* `lienzo_id`: Sala en la que se encuentra conectado.
-* `usuario_id`: Usuario autenticado.
-* `estado_presencia`: Enumerador [`ONLINE`, `RECONNECTING`].
-* `ultimo_latido`: Timestamp del último ping recibido.
+* **Descripción de Dominio:** Entidad de naturaleza volátil y alta frecuencia que reside en memoria rápida (Redis / Memoria del Servidor) para dar soporte al servidor de WebSockets. Responde a la pregunta en tiempo real: *"¿Quiénes de los miembros autorizados están conectados y activos en este instante?"*. Rastrea el ciclo de vida del socket, los latidos periódicos (*heartbeats*) y los periodos de gracia de reconexión antes de marcar al usuario como ausente.
+* **Atributos:**
+  * `socket_id`: Identificador de la conexión activa.
+  * `lienzo_id`: Sala en la que se encuentra conectado.
+  * `usuario_id`: Usuario autenticado.
+  * `estado_presencia`: Enumerador [`ONLINE`, `RECONNECTING`].
+  * `ultimo_latido`: Timestamp del último ping recibido.
 
 ---
 
