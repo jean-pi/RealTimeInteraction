@@ -158,107 +158,49 @@ El pensamiento **Lean** en desarrollo de software busca eliminar todo lo que no 
 
 ---
 
-# Tratamiento Homogéneo y Resolución de Relaciones Muchos a Muchos (N:M) en DDD
+# Tratamiento Homogéneo y Relaciones Muchos a Muchos (N:M) en DDD
 
-Modelado formal de entidades asociativas con roles para erradicar la complejidad condicional y el antipatrón del caso especial.
+Modelado de entidades asociativas con roles para erradicar el antipatrón del caso especial y la duplicación de lógica.
 
 ---
 
 ## 1. Origen Histórico y Genealogía
 
-* **Álgebra Relacional y Formas Normales (1970):** Introducido por **Edgar F. Codd** en su artículo fundacional *"A Relational Model of Data for Large Shared Data Banks"*. Establece que las relaciones Muchos a Muchos ($N:M$) no pueden coexistir directamente dentro de una tupla sin violar la Primera Forma Normal (1NF), exigiendo la descomposición mediante una relación binaria asociativa (tabla de unión, puente o *junction table*).
-* **El Patrón Party-Role y Accountability (1997):** Sistematizado por **Martin Fowler** en *"Analysis Patterns: Reusable Object Models"*. Plantea que los roles que un actor desempeña en un contexto no deben modelarse mediante herencia rígida (`class Owner extends User`, `class Guest extends User`), sino a través de una relación contractual asociativa que decora y cualifica el vínculo.
-* **Entidades de Dominio e Invariantes Asociativos (2003):** Formalizado por **Eric Evans** en *"Domain-Driven Design: Tackling Complexity in the Heart of Software"*. Define que cuando una relación entre dos agregados acumula ciclo de vida, reglas de negocio o identidad propia, la asociación asciende formalmente al estatus de **Entidad Asociativa de Dominio** con sus propios invariantes de consistencia y autorización.
+* **Formas Normales (Edgar F. Codd, 1970):** Descomposición obligatoria de relaciones $N:M$ mediante entidades asociativas (tablas puente) para preservar 1NF.
+* **Patrón Party-Role (Martin Fowler, 1997):** Los roles no son subclases rígidas (`class Owner extends User`), sino vínculos contextuales que decoran la relación.
+* **Entidades e Invariantes Asociativos (Eric Evans, 2003):** La asociación entre agregados se formaliza como una entidad de dominio con reglas de negocio e invariantes propios.
 
 ---
 
-## 2. El Problema: El Antipatrón del Caso Especial (Special Case Antipattern)
+## 2. El Problema vs. El Principio
 
-Cuando una entidad raíz (un Recurso, una Organización, un Espacio Colaborativo) tiene un "Propietario" o "Creador" y al mismo tiempo admite "Miembros" o "Invitados", muchos diseñadores cometen el error de tratar al propietario como una entidad o relación estructuralmente separada:
-
-```
-❌ MODELADO HETEROGÉNEO (Antipatrón del Caso Especial)
-Recurso ─── 1:1 ───> Propietario (Columna propietario_id en Recurso)
-Recurso ─── 1:N ───> MiembrosInvitados (Tabla separada para los demás)
-```
-
-### Consecuencias Técnicas Destructivas:
-1. **Proliferación de Código Condicional (Branching Explosion):** Toda operación de consulta, autorización, renderizado de listas o difusión en tiempo real se ve forzada a bifurcar su lógica con `if/else` defensivos:
-   ```typescript
-   // Código frágil y propenso a regresiones:
-   function obtenerParticipantes(recursoId) {
-     const duenio = db.recursos.findPropietario(recursoId);
-     const invitados = db.invitados.findByRecurso(recursoId);
-     return [duenio, ...invitados]; // Unión manual de estructuras heterogéneas
-   }
-   ```
-2. **Consultas Asimétricas (N+1 Queries):** Para saber si un usuario tiene acceso a un recurso, el sistema debe consultar dos tablas distintas o ejecutar un `UNION` artificial, impidiendo un indexado limpio y degradando la latencia de red.
-3. **Fragilidad ante Cambios de Negocio:** Si en el futuro se introducen nuevos privilegios intermedios (ej. Co-Host, Administrador Delegado, Auditor), el modelo colapsa porque el "Caso Especial" del dueño estaba grabado a fuego en el esquema físico.
+| Enfoque | Estructura | Consecuencia Técnica |
+| :--- | :--- | :--- |
+| ❌ **Antipatrón del Caso Especial** *(Heterogéneo)* | `Recurso -> propietario_id`<br>`Recurso -> HasMany(Invitados)` | • **Explosión condicional:** `if (isOwner) ... else` duplicado en UI, sockets y autorización.<br>• **Consultas asimétricas:** Requiere unir manualmente dos fuentes de datos distintas.<br>• **Fragilidad:** Introducir nuevos roles (ej. Co-Host) colapsa el esquema físico. |
+| ✅ **Tratamiento Homogéneo** *(Entidad Asociativa)* | `Usuario 1 ── N Membresia N ── 1 Recurso`<br>`(rol: HOST \| GUEST)` | • **Consulta única:** `SELECT * FROM membresias WHERE recurso_id = :id`.<br>• **Polimorfismo de dominio:** Colección uniforme de participantes para la UI y la red.<br>• **Invariantes puros:** Las diferencias de autoridad residen en la máquina de estados. |
 
 ---
 
-## 3. El Principio: Tratamiento Homogéneo (Homogeneous Treatment Pattern)
+## 3. Mecanismo Clave: La Membresía Raíz Inmortal
 
-El **Principio de Tratamiento Homogéneo** dicta:
-> *"Modela todos los vínculos de participación bajo una abstracción de datos uniforme y simétrica; delega las diferencias de jerarquía y privilegios a la semántica de roles y a los invariantes del dominio."*
+Todos los participantes (incluyendo al propietario) poseen una `Membresia`. La asimetría de autoridad se delega exclusivamente a invariantes de dominio:
+* **`AbandonarRecurso`:** Permitido para `GUEST`; prohibido para `HOST` (lanza violación de invariante).
+* **`ExpulsarMiembro`:** Solo ejecutable por `HOST`; el dominio prohíbe revocar la membresía raíz.
 
-### La Solución Relacional y de Dominio:
-Se modela una única **Entidad Asociativa (Membership / Participación)** para TODA persona con acceso al recurso, **INCLUYENDO AL PROPIETARIO**:
-
-```
-┌───────────────┐       1:N        ┌─────────────────────────────┐       N:1        ┌───────────────┐
-│    Usuario    │ ───────────────> │         Membresia           │ <─────────────── │    Recurso    │
-│    (Actor)    │                  │ (Entidad Asociativa: N:M)   │                  │  (Espacio)    │
-│               │                  │  - rol: HOST | GUEST        │                  │               │
-│               │                  │  - estado: ACTIVE | REVOKED │                  │               │
-└───────────────┘                  └─────────────────────────────┘                  └───────────────┘
-```
+> 🚢 **Analogía del Manifiesto de Navegación:**
+> Un barco no mantiene dos listas separadas ("El Capitán" y "Los Marineros"). Mantiene un único **Crew Manifest** donde el Capitán ocupa la fila 1 con rol `"Capitán"`. La logística y la aduana procesan una sola lista; la jerarquía de mando reside en el rol.
 
 ---
 
-## 4. Mecanismos Clave y Beneficios Técnicos
+## 4. Referencias Externas para Profundizar
 
-### 1. Consultas Simétricas y Atómicas (Single Query Consistency)
-Obtener la totalidad de participantes con acceso vigente se reduce a una única consulta sobre la tabla asociativa indexada:
-```sql
-SELECT usuario_id, rol, estado 
-FROM membresias 
-WHERE recurso_id = :recursoId AND estado = 'ACTIVE';
-```
-La interfaz de usuario, el canal de mensajería en tiempo real y el motor de políticas de autorización procesan una sola colección uniforme.
-
-### 2. Invariante de Dominio: La Membresía Raíz Inmortal (Root Membership Invariant)
-El propietario posee un registro idéntico en la tabla `Membresia`, pero su comportamiento está protegido por reglas de negocio en la capa de dominio:
-* **Operación `AbandonarRecurso(usuarioId, recursoId)`:**
-  * Si `membresia.rol === GUEST`: Transición válida a `estado = REVOKED`.
-  * Si `membresia.rol === HOST`: Violación de invariante. Lanza excepción de dominio `CANNOT_ABANDON_OWNED_RESOURCE`.
-* **Operación `ExpulsarMiembro(targetUsuarioId)`:**
-  * El dominio valida que `targetMembresia.rol !== HOST` antes de permitir la revocación.
-
-La diferencia entre el creador y el invitado no reside en una estructura física distinta, sino en **los invariantes de transición de su máquina de estados**.
-
----
-
-## 5. Analogía Arquitectónica: El Manifiesto de Navegación
-
-> En una embarcación marítima internacional, las autoridades portuarias y el oficial de seguridad no mantienen dos documentos separados: uno titulado "El Capitán del Barco" y otro titulado "Los Marineros". 
-> 
-> Existe un único documento oficial y vinculante: el **Manifiesto de Tripulación (Crew Manifest)**. En él figuran todos los seres humanos a bordo. El Capitán ocupa la primera fila con rango `"Capitán"`, mientras que los oficiales y marineros ocupan las siguientes filas con sus respectivos rangos. 
-> 
-> Para calcular las raciones de comida, planificar los botes salvavidas o registrar la entrada en un puerto extranjero, el sistema consulta **una única lista uniforme**. La diferencia de autoridad del Capitán no requiere un documento aparte; está codificada en las atribuciones de su rango.
-
----
-
-## 6. Referencias Externas para Profundizar
-
-* 📘 *Analysis Patterns: Reusable Object Models* (Martin Fowler, Addison-Wesley, 1997 - Cap. 2: "Accountability and Party-Role").
-* 📘 *Domain-Driven Design: Tackling Complexity in the Heart of Software* (Eric Evans, Addison-Wesley, 2003 - Cap. 5: "Model Driven Design: Associations & Entities").
-* 📄 *A Relational Model of Data for Large Shared Data Banks* (E. F. Codd, Communications of the ACM, 1970).
-* 📘 *Refactoring: Improving the Design of Existing Code* (Martin Fowler - "Replace Conditional with Polymorphism" y "Introduce Special Case").
+* 📘 *Analysis Patterns: Reusable Object Models* (Martin Fowler, 1997 - Cap. 2: "Accountability and Party-Role").
+* 📘 *Domain-Driven Design* (Eric Evans, 2003 - Cap. 5: "Entities & Associations").
+* 📄 *A Relational Model of Data for Large Shared Data Banks* (E. F. Codd, 1970).
 
 ---
 
 > 💡 **Invariante Fundamental:**
-> *"Nunca bifurques la estructura de datos para resolver una asimetría de privilegios. Unifica el modelo mediante entidades asociativas homogéneas y traslada la diferencia a roles protegidos por invariantes de dominio."*
+> *"Nunca bifurques la estructura de datos para resolver una asimetría de privilegios. Unifica el modelo mediante entidades asociativas homogéneas y traslada la autoridad a roles gobernados por invariantes."*
 
 
