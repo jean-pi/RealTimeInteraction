@@ -273,6 +273,7 @@ La mayor diferencia arquitectónica entre estos tres modelos radica en **dónde 
 * **Consecuencia:** Si dos vistas distintas necesitan aplicar la misma regla de negocio o validar un invariante, los programadores suelen duplicar el código o crear dependencias circulares entre vistas.
 
 ### C. En Vertical Slices: Dominio Descentralizado por Bounded Contexts (DDD Puro)
+Domain-Driven Design (DDD) is a software development approach that structures code around a real-world business domain and its core rules. Introduced by Eric Evans in 2003
 * **No existe un dominio universal.** El dominio vive encapsulado dentro de cada Rebanada Vertical, modelado exclusivamente para la capacidad de negocio que resuelve:
   * En `features/auth/`: El dominio modela `UserCredentials`, `SessionToken`, `AuthPort`. Ignora pagos y sockets.
   * En `features/order-checkout/`: El dominio modela `Order`, `Money`, `TaxCalculator`. Ignora contraseñas.
@@ -293,11 +294,5 @@ La mayor diferencia arquitectónica entre estos tres modelos radica en **dónde 
 > 💡 **Invariante Fundamental:**
 > *"La Rebanada Vertical define DÓNDE viven físicamente los archivos para que el Lazy Loading sea matemáticamente exacto y libre de fugas; Clean / Hexagonal Architecture define CÓMO fluyen las dependencias hacia adentro para que el código no se convierta en espagueti."*
 
----
 
-## ¿Qué es Domain-Driven Design (DDD)?
-
-**Domain-Driven Design (DDD)** es una disciplina de diseño de software (formalizada por Eric Evans en 2003) donde la estructura y el vocabulario del código reflejan fielmente el modelo conceptual del negocio, subordinando la tecnología, frameworks y bases de datos a meros detalles de implementación.
-
-* 📄 **Referencia Externa:** [Domain-Driven Design Reference (Eric Evans, 2015)](https://www.domainlanguage.com/ddd/reference/)
 

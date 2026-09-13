@@ -1,164 +1,97 @@
-# Relación entre Rebanadas Verticales (Vertical Slices), Lazy Loading y Dominio
+# Debate Técnico: Alcance Arquitectónico del Módulo 01 y Rebanadas Verticales
 
-Documento de debate técnico y análisis arquitectónico profundo.
+¡Esa es una observación de ARQUITECTO SENIOR! Tienes absolutamente toda la razón: el Módulo 01 NO es una feature pequeña. No es un botón de "dar like" ni un formulario de perfil.
 
----
+Toca identidad, aprovisionamiento de sala, credenciales, membresías, validación de aforo, servidores de WebSockets y monitorización de latidos (heartbeats).
 
-## 1. Cómo Funciona el Lazy Loading a Bajo Nivel (Teoría de Grafos del Empaquetador)
-
-Cualquier empaquetador moderno (como **Vite, Rollup, Webpack o esbuild**) no procesa carpetas; construye un **Grafo Dirigido de Módulos** a partir del punto de entrada (`main.tsx` o `index.html`):
-
-1. **Importación Estática (`import { X } from './Y'`):** Crea una arista síncrona obligatoria. El empaquetador incluye `./Y` en el mismo archivo JavaScript inicial (`main.chunk.js`).
-2. **Importación Dinámica (`import('./path')` o `React.lazy()`):** Marca un **Punto de Corte (Split Point)**. El empaquetador corta el grafo en ese vértice y empaqueta ese nodo y todas sus dependencias en un archivo físico independiente: un **Chunk Dinámico** (`chunk-xyz.js`).
+Entonces, ¿cómo encaja esto con la teoría de las Rebanadas Verticales? ¿Es una sola rebanada monstruosa? ¿Es un error llamarlo "rebanada"? Vamos a desmitificarlo.
 
 ---
 
-## 2. El Fracaso del Lazy Loading en Arquitecturas Horizontales (Fuga de Dependencias)
+## 1. La Analogía de la Construcción: Cimientos vs. Muebles
 
-En una arquitectura tradicional por capas horizontales globales (`src/ui/`, `src/use-cases/`, `src/adapters/`), el lazy loading suele fallar de forma silenciosa por **fuga de dependencias (Bundle Leakage)**:
+Cuando construyes un edificio residencial:
+* Instalar un espejo en el baño o pintar una pared de azul es una feature pequeña (un acabado visual aislado).
+* Pero las zapatas de hormigón armado, las columnas de carga, la acometida eléctrica principal y las tuberías de agua son el **SUSTRATO FUNDACIONAL**.
 
-```
-src/
-├── ui/              ◄── Se intenta aplicar lazy load sobre CheckoutModal.tsx
-├── use-cases/       ◄── CheckoutUseCase.ts
-└── adapters/        ◄── StripePaymentAdapter.ts (¡Importa un SDK pesado de 300 KB!)
-```
+¿Toca muchas cosas el sustrato fundacional? ¡Por supuesto! Toca albañilería, fontanería, electricidad y cálculo estructural. Pero no puedes amueblar ni pintar una casa que no tiene suelo ni paredes.
 
-* Si en algún punto del sistema (un contenedor de dependencias global, un index central o un helper común) alguien importa estáticamente el adaptador de Stripe:
-* **El Punto de Corte se rompe.**
-* El empaquetador rastrea la importación estática y arrastra los 300 KB del SDK externo al **chunk principal del arranque**.
-* El usuario que únicamente abrió la pantalla de login termina descargando y compilando el código de pagos sin saberlo.
+El Módulo 01 es el **Sustrato Fundacional** de tu plataforma. Todo lo que construiremos después (la pizarra de dibujo, las ventanas de Apple Music, las listas de tareas, las cámaras de video) son los "muebles" que se apoyarán sobre este suelo.
 
 ---
 
-## 3. La Simbiosis con Vertical Slices: El Sub-Grafo Confinado
+## 2. Bounded Context vs. Rebanada Vertical (El Matiz Teórico)
 
-Una **Rebanada Vertical** es un **sub-grafo acíclico cerrado** que se comunica con el exterior a través de una única frontera: su `index.ts`.
+En arquitectura de software, hay una jerarquía que muchos confunden:
 
-```
-                                  APLICACIÓN PRINCIPAL (main.tsx)
-                                                │
-                               (Arista Dinámica / Split Point)
-                         const Checkout = React.lazy(() => import('@features/checkout'))
-                                                │
-                       ═════════════════════════╪══════════════════════════════════ Frontera de Red
-                                                ▼
-                                   [ CHUNK: checkout.chunk.js ]
-                                   ┌───────────────────────────┐
-                                   │ index.ts (Frontera)       │
-                                   │   │                       │
-                                   │   ▼                       │
-                                   │ CheckoutModal.tsx         │
-                                   │   │                       │
-                                   │   ▼                       │
-                                   │ CheckoutUseCase.ts        │
-                                   │   │                       │
-                                   │   ▼                       │
-                                   │ StripePaymentAdapter.ts   │
-                                   │   │                       │
-                                   │   ▼                       │
-                                   │ [ SDK Stripe: 300 KB ]    │
-                                   └───────────────────────────┘
+* **Nivel 1: El Bounded Context (Contexto Delimitado en DDD):**
+  * El Módulo 01 es un Bounded Context completo: **Room & Presence Engine** (Motor de Sala y Presencia).
+  * Es el núcleo que gobierna las 4 entidades que diseñamos: `Usuario`, `LienzoSala`, `MembresiaLienzo` e `InvitacionSala`.
+
+* **Nivel 2: Las Rebanadas Verticales Internas (Casos de Uso):**
+  * Dentro de este gran Bounded Context del Módulo 01, NO creas un archivo gigante de 3,000 líneas.
+  * Lo descompones en rebanadas funcionales atómicas (Vertical Slices) que comparten el mismo dominio:
+
+```text
+src/features/room-presence/
+│
+├── domain/                         ◄── DOMINIO DEL CONTEXTO (Puro, sin dependencias externas)
+│   ├── room.types.ts               (Entidades: Room, Membership, Invitation)
+│   ├── presence-state.machine.ts   (Máquina de estados: Online, Reconnecting, Offline)
+│   └── capacity.guard.ts           (Invariante: aforo <= 10, prioridad de Host)
+│
+├── use-cases/                      ◄── REBANADAS VERTICALES INTERNAS (Casos de uso atómicos)
+│   ├── provision-room.use-case.ts  (1:1 al registrar usuario)
+│   ├── resolve-current-room.ts     (Determinar qué sala abrir al iniciar sesión)
+│   ├── generate-invitation.ts      (Crear/renovar código de 6 caracteres y URL)
+│   ├── redeem-invitation.ts        (Canjear código y crear membresía GUEST)
+│   ├── handle-heartbeat.ts         (Ping cada 5s y ventana de gracia de 10s)
+│   └── disconnect-participant.ts   (Salida voluntaria, kick o timeout)
+│
+├── adapters/                       ◄── INFRAESTRUCTURA (Conexión con el exterior)
+│   ├── websocket-room.gateway.ts   (Manejo del socket, handshake y eventos WS)
+│   └── room-db.repository.ts       (Persistencia en SQLite / Postgres)
+│
+└── index.ts                        ◄── FRONTERA PÚBLICA DEL MÓDULO
 ```
 
-### Mecanismos Clave:
-1. **Isomorfismo Carpeta $\longleftrightarrow$ Chunk:** La carpeta `features/checkout/` en disco se traduce exactamente en el archivo físico `checkout.chunk.js` en el servidor web.
-2. **Cero Fuga Transversal:** Como las demás features tienen prohibido importar las tripas internas de `checkout`, el empaquetador garantiza que nada de esa carpeta viaje en el bundle inicial.
-3. **Contención de SDKs Pesados:** Las librerías de terceros complejas quedan atrapadas dentro del chunk dinámico y solo viajan por la red cuando el usuario activa esa funcionalidad.
+---
+
+## 3. Por qué el Módulo 01 es MANEJABLE (El Poder de los Anti-Requisitos)
+
+Aunque el Módulo 01 toca identidad, persistencia y WebSockets, es **ESTRUCTURALMENTE SEGURO Y MANEJABLE** gracias a lo que decidimos dejar FUERA:
+
+Recuerda el escudo que construimos en [docs/modulo_01_nucleo_sala_presencia.md](file:///c:/Repos/RealTimeInteraction/docs/modulo_01_nucleo_sala_presencia.md) con los Anti-Requisitos:
+
+* **ANTI-04:** Cero trazos de dibujo, cero notas, cero chat, cero música.
+* **ANTI-01:** Cero eliminación de salas.
+* **ANTI-02:** Cero dashboards de "Mis salas múltiples".
+* **ANTI-03:** Cero roles intermedios complejos (solo `HOST` y `GUEST`).
+* **ANTI-05:** Cero tareas de fondo cron para expiración de invitaciones.
+* **ANTI-06:** Cero salas de espera complejas (lobbies).
+
+Al haber eliminado toda esa grasa y complejidad prematura, el Módulo 01 se reduce a un problema matemático estricto:
+
+> *"Un usuario autenticado entra a un lienzo, valida si hay cupo ($N \le 10$), abre un socket y el servidor le avisa a los demás si está conectado o ausente."*
 
 ---
 
-## 4. Beneficios Críticos en Tiempo de Ejecución (Runtime)
+## 4. La Trampa que DEBEMOS Evitar
 
-1. **Aceleración del Motor JavaScript (Parseo y Compilación en CPU):**
-   * El navegador no solo descarga código; el hilo principal (Main Thread) debe compilar el texto a bytecode.
-   * Con Vertical Slices y Lazy Loading, en el arranque la CPU solo compila el chunk mínimo indispensable (~50 KB), manteniendo excelentes métricas de interactividad (**TTI e INP**).
-2. **Invalidación Granular de Caché HTTP:**
-   * Si se modifica un bug en `checkout`, únicamente cambia el hash del archivo `checkout.[hash].js`.
-   * Los chunks de las demás features en el navegador del usuario permanecen intactos en caché.
-3. **Consumo de Memoria RAM Confinado:**
-   * En interfaces complejas, los módulos que el usuario no utiliza jamás son instanciados en el *heap* de memoria del navegador.
+Muchos desarrolladores cometen el error de separar esto en 4 paquetitos diminutos prematuros:
+* `features/invitations/`
+* `features/membership/`
+* `features/presence/`
+* `features/canvas/`
 
----
-
-## 5. ¿Cómo se Relaciona esto con Crear Carpetas Locales Repetidas (Subcarpetas vs. Root)?
-
-La intuición de crear carpetas como `components/`, `services/`, `adapters/` dentro de cada vista (en lugar de ponerlas todas en la raíz `src/`) nació precisamente para resolver este problema: **evitar que el chunk principal (`main.chunk.js`) se sobrecargue con cosas que no son para todo el mundo**.
-
-### La Comparación Técnica:
-* **El Problema que Intentabas Evitar:** Si pones `login.service.ts` o un `PaymentButton.tsx` en `src/services/` o `src/components/` globales, corres el riesgo de que el empaquetador los meta al bundle principal, penalizando la carga de toda la aplicación.
-* **El Propósito Compartido:** Tanto tu técnica de "subcarpetas repetidas por vista" como la arquitectura de **Vertical Slices** buscan exactamente lo mismo: **confinamiento de dependencias**.
-* **La Evolución en Vertical Slices:**
-  * En lugar de crear 4 cajones técnicos anidados dentro de la vista (`login/components/`, `login/services/`, `login/adapters/`), la Rebanada Vertical mantiene los archivos en el mismo nivel plano (`features/login/`).
-  * **Logras exactamente el mismo confinamiento de dependencias para el Lazy Loading**, pero eliminas la fricción de navegar rutas profundas (`../../`) y carpetas vacías con un solo archivo.
+**¿Qué pasa si haces eso?** Creas un infierno de dependencias circulares: `presence` necesita a `membership`, `membership` necesita a `canvas`, y `canvas` necesita a `invitations`. Terminas con espagueti distribuido.
 
 ---
 
-## 6. ¿Dónde se Encuentra el Dominio en las Vertical Slices?
+## La Conclusión Arquitectónica
 
-En Clean Architecture tradicional de libro, los desarrolladores buscan una carpeta monolítica global llamada `src/domain/` donde esperan encontrar todas las entidades de la empresa juntas.
+El Módulo 01 es el **tronco del árbol**:
 
-En **Vertical Slice Architecture**, el dominio se concibe de forma radicalmente distinta:
-
-### El Dominio está Descentralizado y Particionado por Bounded Contexts
-No existe un "dominio universal gigante". **El dominio vive adentro de cada Rebanada Vertical**, modelado exclusivamente para el problema que esa rebanada resuelve:
-
-```
-src/
-└── features/
-    ├── auth/
-    │   ├── auth.types.ts             ◄── DOMINIO DE AUTH: UserCredentials, SessionToken, AuthPort
-    │   └── login.use-case.ts
-    │
-    ├── order-checkout/
-    │   ├── checkout.types.ts         ◄── DOMINIO DE CHECKOUT: OrderSummary, Money, PaymentGatewayPort
-    │   └── process-checkout.ts
-    │
-    └── room-presence/
-        ├── presence.types.ts         ◄── DOMINIO DE PRESENCIA: Room, RoomMember, PresenceState
-        ├── room-capacity.guard.ts    ◄── INVARIANTE DE DOMINIO: Aforo <= 10
-        └── heartbeat-monitor.ts
-```
-
-### ¿Por qué esta distribución del Dominio es superior?
-1. **Evita la Entidad Monolítica "Dios" (`User.ts` de 2,000 líneas):**
-   * En `auth`, el usuario solo necesita `id`, `email` y `passwordHash`.
-   * En `presence`, el usuario solo necesita `id`, `socketId` y `connectionState`.
-   * Al partir el dominio por rebanadas, cada feature modela exactamente los atributos que necesita, sin arrastrar datos innecesarios.
-2. **Invariantes Encapsulados:** Las reglas de negocio (ej. la regla de que el anfitrión tiene cupo garantizado) viven dentro de su propia rebanada vertical (`room-capacity.guard.ts`), blindadas de cualquier interferencia externa.
-3. **Primitivas Globales Compartidas:** Lo único que reside en `src/shared/` son los identificadores universales puros (Value Objects como `UserId`, `TenantId`) que permiten correlacionar eventos entre rebanadas sin acoplarlas lógicamente.
-
----
-
-> 💡 **Conclusión:**
-> *El Dominio en Vertical Slices no es una capa horizontal distante; es el corazón palpitante de cada rebanada. Y el confinamiento físico de esa rebanada es lo que hace que el Lazy Loading sea matemáticamente perfecto.*
-
----
-
-## 7. Conexión con el Límite del Módulo 1 (La Frontera del Sustrato)
-
-El ejercicio previo de delimitar estrictamente el [Módulo 1: Núcleo de Sala y Presencia](file:///c:/Repos/RealTimeInteraction/docs/modulo_01_nucleo_sala_presencia.md) se conecta de forma directa y natural con todo lo discutido:
-
-### A. La Primera Rebanada Vertical Fundacional (The Root Slice)
-* El [Módulo 1](file:///c:/Repos/RealTimeInteraction/docs/modulo_01_nucleo_sala_presencia.md) es exactamente la **primera Rebanada Vertical del sistema** (`features/room-presence/` o sustrato base).
-* Al definir que este módulo **concluye en el lienzo vacío con presencia verificada y aforo $\le 10$**, le dimos una **frontera de confinamiento perfecta**.
-
-### B. Habilitador del Lazy Loading para Capas Superiores
-* Si no hubiéramos trazado ese límite estricto, la lógica de presencia estaría entrelazada con el motor de dibujo, notas o chat.
-* Gracias a este límite, **el motor gráfico pesado (Canvas 2D / WebGL / algoritmos CRDT) se convierte en una Rebanada Vertical posterior que se cargará 100% bajo demanda (Lazy Loaded)**.
-* El usuario se conecta a la sala, valida aforo e intercambia heartbeats descargando un chunk mínimo (~40 KB). El motor de trazos o widgets solo viajará por la red una vez confirmada la admisión.
-
-### C. Dominio Descentralizado y Puro
-* El dominio del Módulo 1 solo conoce conceptos de su límite: `Room`, `Member`, `Host`, `Guest`, `CapacityGuard`, `PresenceState`.
-* **Ignora por completo qué es un píxel, un trazo o un color.**
-* Cuando implementemos los módulos superiores, ellos tendrán su propio dominio (`Stroke`, `Point`, `Brush`, `CRDTNode`) sin contaminar ni una sola línea del núcleo de sala y presencia.
-
-### D. Los Anti-Invariantes como Guardianes de la Rebanada
-* El invariante **ANTI-04 (Prohibición de capa gráfica y chat en este módulo)** es la regla arquitectónica explícita que protege al empaquetador de sufrir *Bundle Leakage*.
-* Garantiza que ningún desarrollador ni agente de IA importe por error librerías gráficas dentro de la rebanada de presencia, manteniendo intacto el corte del sub-grafo.
-
----
-
-> 💡 **Síntesis Integradora:**
-> *Definir las "Reglas del Sistema General" fue, en esencia, trazar los límites físicos y lógicos de la primera gran Rebanada Vertical. Garantizó que el sustrato de red sea ligero e independiente, y que todo el peso de las herramientas colaborativas futuras pueda cargarse de forma perezosa (Lazy Loaded) sobre él.*
-
+1. Se empaqueta junto en `src/features/room-presence/` porque sus entidades están fuertemente acopladas por naturaleza de negocio.
+2. Se implementa ordenadamente a través de sus casos de uso atómicos.
+3. Y una vez que este tronco esté en pie y testeado, todas las demás features (pizarra, música, ventanas) florecerán como ramas independientes (verdaderas rebanadas externas cargadas bajo demanda) sin tocar jamás el núcleo de presencia.
