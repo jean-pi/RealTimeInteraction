@@ -84,77 +84,110 @@ src/features/auth/
 
 ---
 
-# Rebanadas Verticales (Vertical Slices) y su Simbiosis con Clean & Hexagonal Architecture
+# Rebanadas Verticales (Vertical Slices), Lazy Loading y Dominio en Clean Architecture
 
-Muchos desarrolladores asumen erróneamente que las **Rebanadas Verticales (Vertical Slices)** y **Clean / Hexagonal Architecture** son enfoques rivales. En realidad, son **dos dimensiones geométricas perpendiculares (ortogonales) del mismo sistema**.
+Análisis comparativo de organización física de código, teoría de grafos del empaquetador y modelado de dominio descentralizado.
 
 ---
 
-## 1. La Matriz del Software: Corte Horizontal vs. Corte Vertical
+## 1. Cómo Funciona el Lazy Loading a Bajo Nivel (Teoría de Grafos del Empaquetador)
+
+Cualquier empaquetador moderno (**Vite, Rollup, Webpack, esbuild**) no procesa carpetas; construye un **Grafo Dirigido de Módulos** a partir del punto de entrada (`main.tsx` o `index.html`):
+
+1. **Importación Estática (`import { X } from './Y'`):** Crea una arista síncrona obligatoria. El empaquetador incluye `./Y` en el mismo archivo JavaScript inicial (`main.chunk.js`).
+2. **Importación Dinámica (`import('./path')` o `React.lazy()`):** Marca un **Punto de Corte (Split Point)**. El empaquetador corta el grafo en ese vértice y empaqueta ese nodo y todas sus dependencias transitivas en un archivo físico independiente: un **Chunk Dinámico** (`chunk-xyz.js`).
+
+### El Fracaso del Lazy Loading en Arquitecturas Horizontales (Bundle Leakage)
+En una arquitectura por capas globales (`src/ui/`, `src/services/`, `src/adapters/`), si un desarrollador importa estáticamente un SDK pesado (ej. un cliente de pagos de 300 KB) desde un archivo común o un contenedor de servicios compartido, **el Punto de Corte se rompe silenciosamente**. El empaquetador rastrea la arista y arrastra los 300 KB al bundle inicial del arranque, arruinando el tiempo de carga (**LCP e INP**).
+
+---
+
+## 2. Comparativa de Tres Enfoques de Organización de Código
+
+Frente a este desafío, existen tres formas de estructurar un proyecto:
 
 ```
-                          CORTE VERTICAL (Vertical Slices: por Feature)
-                     Feature 1: Auth    Feature 2: Checkout   Feature 3: Presence
-                   ┌──────────────────┬─────────────────────┬─────────────────────┐
-   Capa Externa    │  LoginForm.tsx   │  CheckoutModal.tsx  │ ParticipantsList.tsx│ ◄── UI (Driving Adapters)
-         │         ├──────────────────┼─────────────────────┼─────────────────────┤
-   Capa Media      │  LoginUseCase    │  CheckoutUseCase    │ PresenceMachine     │ ◄── Casos de Uso / Puertos
-         │         ├──────────────────┼─────────────────────┼─────────────────────┤
-   Capa Interna    │  auth-api.adapter│  stripe.adapter     │ websocket.adapter   │ ◄── Infra (Driven Adapters)
-                   └──────────────────┴─────────────────────┴─────────────────────┘
-                   ▲                  ▲                     ▲
-                   └── Cada columna es una REBANADA VERTICAL completa
+ENFOQUE 1: Cajones Globales          ENFOQUE 2: Subcarpetas por Vista       ENFOQUE 3: Vertical Slices Planos
+(Package-by-Layer)                  (View-Scoped Nested Drawers)           (Package-by-Feature)
+
+src/                                src/                                   src/features/
+├── components/                     └── views/                             ├── auth/
+│   ├── LoginForm.tsx                   └── login/                         │   ├── LoginForm.tsx
+│   └── CheckoutModal.tsx                   ├── components/                │   ├── login.use-case.ts
+├── services/                               │   └── LoginForm.tsx          │   ├── auth.types.ts
+│   ├── auth.service.ts                     ├── services/                  │   ├── auth-http.adapter.ts
+│   └── checkout.service.ts                 │   └── auth.service.ts        │   └── index.ts (Frontera)
+└── adapters/                               └── adapters/                  └── checkout/
+    ├── http.adapter.ts                         └── auth-http.adapter.ts       ├── CheckoutModal.tsx
+    └── stripe.adapter.ts                                                      ├── checkout.use-case.ts
+                                                                               └── index.ts
 ```
 
-* **El Corte Horizontal Clásico (Clean Architecture Tradicional):** Agrupa por filas técnicas (`src/ui/`, `src/use-cases/`, `src/adapters/`). Al modificar un flujo de negocio, exige editar archivos dispersos a lo largo de todas las capas horizontales.
-* **El Corte Vertical (Vertical Slice Architecture - Jimmy Bogard, 2018):** Agrupa por columnas funcionales. Todo lo necesario para satisfacer un flujo de negocio específico reside en un único paquete cohesivo (`features/checkout/`).
+| Dimensión | 1. Cajones Globales (Root) | 2. Subcarpetas Anidadas por Vista | 3. Vertical Slices Planos |
+| :--- | :--- | :--- | :--- |
+| **Estructura** | `src/components/`<br>`src/services/`<br>`src/adapters/` | `views/login/components/`<br>`views/login/services/`<br>`views/login/adapters/` | `features/login/`<br>(Archivos cohesivos en un mismo nivel plano) |
+| **Lazy Loading** | ❌ **Muy frágil:** Propenso a *Bundle Leakage* por importaciones cruzadas. | ✅ **Funciona:** Confinar el código dentro de la vista permite crear un chunk aislado. | ✅ **Funciona al 100%:** Cada feature es un sub-grafo acíclico cerrado con un único `index.ts`. |
+| **Ergonomía** | ❌ Baja cohesión: Editar 1 feature exige saltar entre 3 carpetas distantes. | ❌ **Burocracia alta:** Laberinto de carpetas con 1 solo archivo y rutas relativas `../../../`. | ✅ **Alta cohesión:** Todo reside en un mismo directorio plano; cero fricción de navegación. |
+| **Eliminación** | ❌ Riesgo alto de dejar código muerto disperso. | ⚠️ Borrar la vista elimina casi todo, salvo adaptadores compartidos. | ✅ **Atómica:** Borrar la carpeta de la feature elimina el 100% del código asociado. |
+
+### La Pregunta Clave: ¿Crear subcarpetas dentro de cada vista funciona?
+**SÍ, FUNCIONA A NIVEL DE EMPAQUETADOR.** Agrupar componentes y servicios dentro de la carpeta de la vista resuelve el problema de la fuga de dependencias porque confina el sub-grafo. 
+
+**Sin embargo, su defecto es la sobre-ingeniería de directorios:** reproduce la jerarquía técnica en miniatura dentro de cada pantalla, obligando a crear carpetas como `login/services/` que contienen un único archivo solitario. 
+
+**La evolución hacia Vertical Slices Planos:** mantiene **exactamente el mismo beneficio de aislamiento de dependencias para el Lazy Loading**, pero aplana la estructura (`features/login/`). No necesitas 4 cajones para 4 archivos; los agrupas por su propósito de negocio, no por su extensión técnica.
 
 ---
 
-## 2. ¿Cómo se Relacionan Exactamente?
+## 3. ¿Cómo se Concibe el Dominio en Cada Enfoque?
 
-La relación es simbiótica:
-> **La Rebanada Vertical define DÓNDE viven físicamente los archivos (la frontera del paquete).**
-> **Clean / Hexagonal Architecture define CÓMO fluyen las dependencias lógicas DENTRO de esa rebanada.**
+La mayor diferencia arquitectónica entre estos tres modelos radica en **dónde y cómo reside la lógica de negocio**:
 
-La Rebanada Vertical **no destruye el hexágono; lo miniaturiza y lo hace autosuficiente**. Cada rebanada es un **micro-hexágono completo**:
-* **Driving Adapter:** La interfaz visual o endpoint que dispara la acción.
-* **Núcleo:** El caso de uso que defiende las reglas de negocio de esa rebanada.
-* **Puertos:** Las interfaces TypeScript de lo que la rebanada necesita del exterior.
-* **Driven Adapters:** La implementación con la base de datos o el SDK externo.
+### A. En Cajones Globales: El Dominio Anémico Monolítico (Objeto Dios)
+* Se crea una carpeta central `src/domain/` o `src/models/` donde se acumulan todas las entidades de la empresa juntas.
+* **Consecuencia:** Surge el **"Objeto Dios"** (ej. una entidad `User.ts` de 2,500 líneas con 60 propiedades: credenciales, roles, tarjetas bancarias, preferencias de UI, estados de sesión). Todas las partes del sistema dependen de la misma entidad inflada, generando acoplamiento destructivo.
 
----
+### B. En Subcarpetas por Vista: El Dominio Secuestrado por la UI
+* Como el código se organiza alrededor de "Pantallas" o "Vistas" (`views/`), las reglas de negocio quedan atrapadas dentro del ciclo de vida visual de los componentes o hooks locales.
+* **Consecuencia:** Si dos vistas distintas necesitan aplicar la misma regla de negocio o validar un invariante, los programadores suelen duplicar el código o crear dependencias circulares entre vistas.
 
-## 3. ¿Qué le Aporta Cada Enfoque al Otro?
-
-### A. Lo que la Rebanada Vertical le aporta a Clean Architecture:
-* **Elimina los "Paquetes Dios" (God Packages):** Evita que `domain/` acumule 150 entidades y 200 use-cases de dominios no relacionados. Confinada la lógica a su *Bounded Context* estricto.
-* **Elimina la Burocracia Estructural:** Libera al equipo de crear carpetas vacías solo para satisfacer un diagrama estático.
-
-### B. Lo que Clean / Hexagonal le aporta a la Rebanada Vertical:
-* **Evita el Código Espagueti:** Previene que programadores mezclen consultas directas a base de datos o llamadas crudas de red dentro de componentes de interfaz visual.
-* **Mantiene la Inversión de Dependencias (DIP):** El caso de uso gobierna la lógica sin acoplarse al botón de la pantalla ni al SDK de terceros, permitiendo tests en memoria a velocidad de CPU.
+### C. En Vertical Slices: Dominio Descentralizado por Bounded Contexts (DDD Puro)
+* **No existe un dominio universal.** El dominio vive encapsulado dentro de cada Rebanada Vertical, modelado exclusivamente para la capacidad de negocio que resuelve:
+  * En `features/auth/`: El dominio modela `UserCredentials`, `SessionToken`, `AuthPort`. Ignora pagos y sockets.
+  * En `features/order-checkout/`: El dominio modela `Order`, `Money`, `TaxCalculator`. Ignora contraseñas.
+  * En `features/room-presence/`: El dominio modela `Room`, `Participant`, `Heartbeat`. Ignora tarjetas de crédito.
+* **Beneficio:** Máxima pureza, modelos compactos (< 50 líneas por archivo) e invariantes blindados dentro de su frontera contextual.
 
 ---
 
-## 4. El Vínculo con "Lean Architecture" (Eliminación de Desperdicio)
+## 4. Simbiosis con Clean & Hexagonal Architecture
 
-El pensamiento **Lean** en desarrollo de software busca eliminar todo lo que no añade valor directo (*overhead* o burocracia técnica):
-* **Clean Architecture dogmática genera desperdicio:** Obliga a crear 4 capas y 8 archivos aunque la operación sea simplemente consultar un dato de solo lectura (*Query*).
-* **Lean + Vertical Slice + Hexagonal:** Permite calibrar la profundidad arquitectónica según la complejidad real del flujo:
-  * Si el flujo tiene reglas de negocio críticas o estado complejo, se aplica el hexágono con rigor formal: puertos, adaptadores y máquinas de estado.
-  * Si el flujo es trivial (ej. mostrar texto estático de términos y condiciones), la rebanada puede ser un simple componente plano sin inventar puertos artificiales innecesarios.
+Muchos desarrolladores creen que *Clean / Hexagonal Architecture* exige obligatoriamente carpetas llamadas `domain/`, `ports/` y `adapters/` en la raíz. **Esto es una confusión entre diseño lógico y empaquetado físico.**
+
+> **El Hexágono no es una plantilla de carpetas; es una regla de dependencias:**
+> *"El núcleo del negocio jamás debe depender de la infraestructura externa."*
+
+En **Vertical Slice Architecture**, cada rebanada es un **micro-hexágono autosuficiente**:
+* **Driving Adapter:** La vista visual (`LoginForm.tsx`) o endpoint que dispara la interacción.
+* **Inside the Hexagon:** El caso de uso (`login.use-case.ts`) gobernando las reglas de negocio puras.
+* **Ports:** Interfaces TypeScript (`auth.types.ts`) que definen lo que el caso de uso requiere (0 KB en el bundle final).
+* **Driven Adapter:** La implementación técnica (`auth-http.adapter.ts`) con el protocolo de red o base de datos.
+
+La Rebanada Vertical define **DÓNDE viven físicamente los archivos** para garantizar un Lazy Loading perfecto sin fuga de dependencias; Clean / Hexagonal Architecture define **CÓMO fluyen las dependencias hacia adentro** para que el código no se convierta en espagueti.
 
 ---
 
 ## 5. Referencias Externas para Profundizar
 
 * 📄 [Vertical Slice Architecture - Jimmy Bogard (2018)](https://jimmybogard.com/vertical-slice-architecture/)
+* 📘 *Domain-Driven Design: Tackling Complexity in the Heart of Software* (Eric Evans, 2003 - "Bounded Contexts & Context Maps").
+* 📘 *Clean Architecture: A Craftsman's Guide to Software Structure and Design* (Robert C. Martin, 2017 - Cap. 34: "The Missing Chapter: Package by Component").
+* 📄 [Screaming Architecture - Uncle Bob (2011)](https://blog.cleancoder.com/uncle-bob/2011/09/30/Screaming-Architecture.html)
 
 ---
 
 > 💡 **Invariante Fundamental:**
-> *"Clean / Hexagonal Architecture es el protocolo de pureza lógica (las dependencias solo apuntan hacia adentro). Vertical Slices es la estrategia de empaquetado físico (el software se divide en columnas autónomas). Juntas garantizan la protección de Clean Architecture sin la burocracia de las capas horizontales globales."*
+> *"Clean / Hexagonal Architecture garantiza la protección lógica (el dominio es independiente de la tecnología). Vertical Slices garantiza la contención física del grafo (el Lazy Loading es matemáticamente exacto y libre de fugas). Juntas eliminan tanto el código espagueti como la burocracia de las capas horizontales."*
 
 ---
 
