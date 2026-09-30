@@ -382,6 +382,124 @@ src/modules/room-presence/
 > 💡 **Invariante Fundamental:**
 > *"El Bounded Context define la frontera de autonomía y consistencia transaccional; el Dominio Rico centraliza y protege las invariantes para que no se desparramen; y las Rebanadas Verticales internas orquestan cada caso de uso con máxima cohesión y cero burocracia."*
 
+---
+
+# Monorepo con Workspaces de pnpm: Arquitectura Cliente-Servidor para Tiempo Real con Estado
+
+Estrategia física y de empaquetado para gobernar un servidor persistente en tiempo real, un cliente web interactivo y contratos de red fuertemente tipados en un único repositorio sin fugas de dependencias.
+
+---
+
+## 1. Exploración de la Técnica: Monorepo con Workspaces de pnpm
+
+### ¿Qué problema resuelve?
+En aplicaciones interactivas donde coexisten un servidor de WebSockets y un cliente web:
+1. **Evita la desincronización de contratos (El dolor del Polyrepo):** Si cambias el payload de un evento de presencia en el servidor, TypeScript detecta inmediatamente el error en el cliente en tiempo de compilación.
+2. **Elimina las Dependencias Fantasma (*Phantom Dependencies*):** A diferencia de npm o yarn v1 (que aplanan agresivamente `node_modules/`), pnpm utiliza un almacén direccionable por contenido mediante enlaces duros (*hard links*) y enlaces simbólicos aislados (*symlinks*). Si el cliente web no declara explícitamente una librería en su propio `package.json`, es físicamente incapaz de importarla, evitando que módulos nativos del servidor (como `Buffer` o `net`) se cuelen en el bundle del navegador.
+3. **Desarrollo con Cero Pasos de Compilación Intermedia (*Zero-Build DX*):** Mediante el campo `exports` apuntando directamente a TypeScript y el uso de compiladores al vuelo en memoria (Vite vía esbuild en el frontend, y Node.js con `tsx` o ejecución nativa en el backend), los cambios en los contratos compartidos se reflejan de forma instantánea sin necesidad de ejecutar un `build` previo.
+
+### ¿Cómo se hace? (Topología y Reglas de Diseño)
+
+```text
+RealTimeInteraction/
+├── pnpm-workspace.yaml            ◄── Define la topología del monorepo
+├── package.json                   ◄── Raíz privada (scripts de orquestación global)
+├── tsconfig.base.json             ◄── Configuración base unificada y estricta
+│
+├── packages/
+│   └── contracts/                 ◄── CONTRATOS COMPARTIDOS (Protocolo de red / DTOs)
+│       ├── package.json           (name: "@rti/contracts")
+│       └── src/
+│           ├── room.dto.ts        (Payloads: RoomJoinedPayload, RoomCapacityReachedError)
+│           ├── presence.dto.ts    (Heartbeats, UserPresenceState)
+│           ├── events.ts          (Nombres canónicos de eventos WebSocket)
+│           └── index.ts
+│
+└── apps/
+    ├── server/                    ◄── SERVIDOR EN TIEMPO REAL (Monolito Modular)
+    │   ├── package.json           (name: "@rti/server", consume "@rti/contracts")
+    │   └── src/
+    │       ├── modules/
+    │       │   └── room-presence/ ◄── Bounded Context Módulo 01 (Dominio puro + Slices)
+    │       └── main.ts            (Daemon persistente: HTTP + WebSockets)
+    │
+    └── web/                       ◄── CLIENTE WEB (Lienzo interactivo en Vite)
+        ├── package.json           (name: "@rti/web", consume "@rti/contracts")
+        └── src/
+            ├── features/
+            │   └── room-presence/ ◄── Slices de UI
+            └── main.tsx
+```
+
+#### Regla de Oro: ¿Qué se comparte y qué se aísla?
+* **En `@rti/contracts`:** Únicamente DTOs, interfaces de eventos de red, enums/tipos literales y esquemas de validación de entrada (ej. Zod/TypeBox).
+* **Fuera de `@rti/contracts`:** Las entidades de dominio con lógica de persistencia e invariantes del backend (`Room.ts`) jamás se comparten con el cliente. El cliente conoce los mensajes que viajan por el cable, no la maquinaria interna del servidor.
+
+---
+
+## 2. La Otra Opción: Metaframeworks Fullstack Serverless (Next.js, Nuxt, SvelteKit)
+
+### ¿Qué hacen y por qué son la corriente dominante?
+Hoy representan el enfoque predominante para más del 80% de los desarrollos web comerciales (sitios de contenido, plataformas de comercio electrónico, paneles administrativos y CRUDs tradicionales).
+
+* **Unificación extrema:** Escriben componentes que pueden ejecutarse tanto en el servidor como en el cliente (React Server Components). El backend se reduce a funciones invocables (*Server Actions* o *Route Handlers*).
+* **Despliegue Serverless:** Diseñados para desplegarse en infraestructuras efímeras tipo Vercel o AWS Lambda en el borde (*Edge*).
+
+### ¿Por qué FALLAN para Sistemas de Tiempo Real Colaborativos? (El Conflicto Físico: Stateless vs. Stateful)
+
+| Dimensión | Metaframeworks Serverless (Next.js) | Servidor Dedicado de Tiempo Real (Nuestra Arquitectura) |
+| :--- | :--- | :--- |
+| **Modelo de Proceso** | **Efímero (*Stateless*):** La función nace ante una petición HTTP, se ejecuta en ~50ms y se destruye de la memoria RAM. | **Persistente (*Stateful Daemon*):** El proceso reside 24/7 en memoria RAM como un demonio continuo. |
+| **Soporte WebSocket** | ❌ **Inviable nativamente:** Una función Serverless no puede sostener un socket TCP abierto indefinidamente sin sobrecostos de timeout o desconexiones forzadas. | ✅ **Nativo y Óptimo:** Mantiene miles de conexiones TCP/WebSocket abiertas concurrentemente. |
+| **Monitoreo de Latidos (*Heartbeats*)** | ❌ Exige recurrir a servicios de terceros costosos (Pusher, Ably) o bases de datos como intermediarios lentos. | ✅ Monitorea latidos cada 5s en la memoria del proceso local con latencias inferiores a 5ms. |
+| **Gestión de Memoria y Aforo** | ❌ No hay memoria compartida entre ejecuciones concurrentes de funciones Serverless. | ✅ Invariante de aforo ($N \le 10$) y presencia resueltos en memoria atómica. |
+
+> ⚠️ **Conclusión Técnica:**
+> Usar Next.js para un lienzo interactivo colaborativo es forzar un modelo de computación efímero y sin estado sobre un problema que es inherentemente continuo y con estado en memoria. Por eso herramientas como **Figma, Miro, Discord o Linear** ejecutan servidores persistentes dedicados.
+
+---
+
+## 3. Evolución Histórica de la Arquitectura Web (Las 4 Eras)
+
+Comprender la genealogía técnica permite entender por qué las soluciones del pasado fracasaron y hacia dónde converge la ingeniería moderna:
+
+```text
+ERA 1 (1995-2005)       ERA 2 (2005-2013)       ERA 3 (2013-2020)       ERA 4 (2020-Presente)
+Monolito SSR            Surgimiento AJAX/SPA    La Gran Separación      La Gran Bifurcación
+┌──────────────┐        ┌──────────────┐        ┌──────┐    ┌──────┐   A) Meta-Frameworks (Next/Nuxt)
+│ Servidor     │        │ Servidor     │        │ SPA  │    │ API  │      (Stateless / Serverless)
+│ (PHP/Rails)  │        │ (Plantillas) │        │(React│    │ REST │   B) Monorepo Stateful RT ⭐
+│ Genera HTML  │        │ + jQuery     │        │ CDN) │    │(Node)│      (Figma / Miro / Nuestro caso)
+└──────────────┘        └──────────────┘        └──────┘    └──────┘
+```
+
+### Era 1: El Monolito Renderizado en Servidor (1995 – 2005)
+* **Arquitectura:** Un solo proceso centralizado (PHP, Perl CGI, Java Servlets, Ruby on Rails, Django).
+* **Mecánica:** El navegador era un visualizador pasivo. Cada interacción disparaba una petición HTTP completa de ida y vuelta: el servidor reconstruía la página desde cero inyectando datos en plantillas HTML y la devolvía íntegra.
+* **Frontend:** No existía como disciplina independiente; JavaScript era un lenguaje accesorio para validar formularios o mostrar alertas en el DOM.
+
+### Era 2: La Revolución AJAX y las Primeras SPAs (2005 – 2013)
+* **El cambio de paradigma:** En 2005, el lanzamiento de **Google Maps y Gmail** demostró que el navegador podía intercambiar fragmentos de datos en segundo plano mediante `XMLHttpRequest` (AJAX) sin refrescar la pantalla completa.
+* **Surgimiento de librerías:** Nació jQuery (2006) para mitigar las inconsistencias del DOM entre navegadores, seguido por los primeros frameworks con modelos de cliente: **Backbone.js (2010)** y **AngularJS (2010)**.
+* **Organización:** Se mantenía un único repositorio donde el código cliente residía en carpetas tipo `public/javascripts/`, pero el navegador comenzó a retener estado y orquestar vistas locales.
+
+### Era 3: La Gran Separación y el Dolor del Polyrepo (2013 – 2020)
+* **El auge de las Single Page Applications (SPAs):** Con la consolidación de **React (2013)** y empaquetadores como Webpack, la industria promovió la escisión total entre frontend y backend:
+  * **Repo 1 (`frontend`):** SPA estática compilada y desplegada globalmente en redes de distribución de contenido (CDNs).
+  * **Repo 2 (`backend`):** API REST tradicional en Node.js, Go o Python.
+* **El problema de fondo (Desincronización de Contratos):** Los repositorios independientes obligaban a duplicar manualmente las interfaces y tipos de datos en ambos extremos. Las modificaciones de contrato en el backend causaban rupturas silenciosas en producción al no existir validación cruzada en tiempo de compilación.
+
+### Era 4: El Escenario Actual y la Gran Bifurcación (2020 – Presente)
+La industria se polarizó en dos soluciones frente a las fallas de la Era 3:
+1. **Para aplicaciones orientadas a documentos, contenido y transacciones cortas:** Los **Metaframeworks Fullstack Serverless** (Next.js, Remix, Nuxt) que absorben todo en un modelo HTTP sin estado.
+2. **Para aplicaciones colaborativas de alta fidelidad e interacción continua:** El **Monorepo con Workspaces y Servidor Persistente con Estado (Stateful Real-Time Monorepo)** (el modelo adoptado por Figma, Miro, Linear y nuestro proyecto), donde el backend mantiene conexiones TCP persistentes en memoria y comparte contratos tipados con el cliente de forma atómica y sin fricción.
+
+---
+
+> 💡 **Invariante Fundamental:**
+> *"La naturaleza del estado determina la topología de la infraestructura: los sistemas efímeros pertenecen a funciones Serverless sin estado; los sistemas colaborativos en tiempo real exigen procesos persistentes con estado en memoria, orquestados en un monorepo para garantizar integridad tipada de punta a punta."*
+
+
 
 
 
