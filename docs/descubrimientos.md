@@ -499,6 +499,32 @@ La industria se polarizó en dos soluciones frente a las fallas de la Era 3:
 > 💡 **Invariante Fundamental:**
 > *"La naturaleza del estado determina la topología de la infraestructura: los sistemas efímeros pertenecen a funciones Serverless sin estado; los sistemas colaborativos en tiempo real exigen procesos persistentes con estado en memoria, orquestados en un monorepo para garantizar integridad tipada de punta a punta."*
 
+---
+
+## 30/09/2026 - Aislamiento de Dependencias en el Monorepo (pnpm)
+
+Durante la inicialización del monorepo, se hizo evidente el porqué de la existencia de múltiples carpetas `node_modules` dispersas en `apps/server`, `apps/web` y `packages/contracts`.
+
+**Descubrimiento Arquitectónico: La Evolución de la Resolución de Dependencias**
+
+El comportamiento de aislar múltiples carpetas `node_modules` utilizando `pnpm` workspaces es una decisión arquitectónica diseñada para resolver los problemas históricos de los gestores de paquetes en Node.js. Existen tres etapas clave para comprender esto:
+
+1. **Anidamiento Profundo (npm clásico v1/v2):**
+   Originalmente, cada paquete instalado descargaba sus propias dependencias dentro de su propia subcarpeta `node_modules`. Si 10 librerías requerían `lodash`, el código de `lodash` se duplicaba 10 veces físicamente en el disco. Esto garantizaba aislamiento (cada paquete tenía exactamente lo que pedía), pero generaba estructuras de directorios excesivamente profundas, provocando errores por límite de longitud de rutas en sistemas operativos (ej. Windows) y un consumo ineficiente de almacenamiento.
+
+2. **Aplanamiento o Hoisting (Yarn v1 / npm v3+):**
+   Para solucionar el consumo de disco y las rutas largas, se implementó el "Hoisting" (izado). Consiste en extraer todas las dependencias, directas y transitivas, y colocarlas planas en un único `node_modules` en la raíz del proyecto.
+   **El Problema:** Esto generó las **Dependencias Fantasma (Phantom Dependencies)**. Como todas las librerías comparten la misma carpeta raíz, un archivo en `apps/server` puede importar exitosamente una librería (ej: `zod`) sin haberla declarado en su propio `package.json`, simplemente porque otro paquete del monorepo la instaló. Si dicho paquete se elimina o actualiza en el futuro, `apps/server` dejará de funcionar inesperadamente en producción debido a que su dependencia oculta desapareció.
+
+3. **Topología Estricta con Symlinks (pnpm):**
+   `pnpm` combina la eficiencia del aplanamiento con la seguridad del anidamiento mediante enlaces simbólicos del sistema operativo (symlinks). 
+   - **Almacenamiento global:** Guarda los archivos físicos reales de las dependencias una sola vez en un almacén central (`.pnpm-store` en la raíz).
+   - **Aislamiento local:** En el `node_modules` de cada aplicación individual (`apps/server`, `apps/web`), pnpm inyecta *únicamente* los symlinks de las dependencias explícitamente declaradas en el `package.json` de esa carpeta.
+   - **Garantía:** Si `apps/server` intenta importar una librería no declarada, Node.js arrojará un error inmediatamente, previniendo la existencia de dependencias fantasma.
+
+**Impacto de la Decisión:**
+Esta estrategia garantiza que cada pieza de software dentro del monorepo es estrictamente declarativa y autocontenida. Al forzar esta validación de dependencias locales, aseguramos que la portabilidad de los Módulos (Bounded Contexts) o Apps esté garantizada, logrando un verdadero desacoplamiento a nivel de infraestructura.
+
 
 
 
