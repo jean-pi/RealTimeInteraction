@@ -294,5 +294,94 @@ Domain-Driven Design (DDD) is a software development approach that structures co
 > 💡 **Invariante Fundamental:**
 > *"La Rebanada Vertical define DÓNDE viven físicamente los archivos para que el Lazy Loading sea matemáticamente exacto y libre de fugas; Clean / Hexagonal Architecture define CÓMO fluyen las dependencias hacia adentro para que el código no se convierta en espagueti."*
 
+---
+
+# El Paradigma Canónico: Monolito Modular (DDD + Rebanadas Verticales Internas)
+
+Este es el **paradigma arquitectónico oficial y por defecto** adoptado para el proyecto. Resuelve de raíz el dilema de tener un dominio desparramado por la aplicación sin caer en la burocracia anémica de las capas horizontales tradicionales.
+
+---
+
+## 1. La Síntesis Arquitectónica: Dos Niveles de Jerarquía
+
+En lugar de elegir entre "todo plano en rebanadas" o "todo dividido en capas técnicas", el sistema se organiza formalmente en dos niveles conceptuales y físicos:
+
+```text
+Nivel 1: Bounded Context (Módulo de Negocio Autónomo)
+   │
+   ├── Dominio Protegido (Agregados, Invariantes, Value Objects, Puertos)
+   │
+   ├── Nivel 2: Rebanadas Verticales Internas (Casos de uso atómicos)
+   │
+   ├── Infraestructura (Adaptadores secundarios: DB, WebSockets, etc.)
+   │
+   └── public-api.ts (Frontera pública estricta del módulo)
+```
+
+---
+
+## 2. Los 3 Pilares del Monolito Modular
+
+### A. Aislamiento de Memoria y Fronteras de Compilación (`public-api.ts`)
+* Cada módulo (`src/modules/<nombre-modulo>/`) es un Bounded Context cerrado con un único punto de exportación: `public-api.ts` (o `index.ts`).
+* Ningún módulo externo tiene permitido importar archivos internos (`/domain/`, `/use-cases/`, `/infrastructure/`) de otro módulo.
+* La comunicación entre módulos se realiza exclusivamente a través de contratos de interfaces públicas tipadas o clientes internos definidos en su frontera pública.
+
+### B. Dominio Rico y Protegido (Eliminación del Dominio Desparramado)
+* **El problema evitado:** En Vertical Slices puros sin DDD, las reglas de negocio suelen degenerar en scripts procedurales (*Transaction Scripts*) duplicados en cada manejador.
+* **La solución:** Las invariantes críticas del negocio (ej. la regla de aforo $N \le 10$, la reserva de cupo garantizada para el Anfitrión, la máquina de estados de presencia con periodos de gracia) no se dispersan en cada caso de uso. Residen de forma centralizada en el modelo de dominio puro del módulo (`domain/`).
+* **Casos de uso delgados:** Cada rebanada vertical interna orquesta la operación: carga el agregado, le delega la ejecución de la regla de negocio y persiste el resultado.
+
+### C. Desacoplamiento Inter-Módulo mediante Eventos de Dominio en Memoria
+* Cuando una acción en un módulo debe provocar una reacción en otro módulo (ej. un usuario abandona la sala y la pizarra debe limpiar sus punteros temporales), **se prohíben las llamadas directas acopladas**.
+* El módulo emite un **Evento de Dominio Tipado** en un bus de eventos en memoria (`EventEmitter` tipado). El módulo receptor se suscribe de forma reactiva y autónoma.
+* **Invariante de Grafo:** La relación de importación entre módulos debe formar siempre un **Grafo Acíclico Dirigido (DAG)**. Las dependencias circulares están terminantemente prohibidas y son rechazadas en tiempo de compilación.
+
+---
+
+## 3. Estructura Canónica de Directorios de un Módulo
+
+```text
+src/modules/room-presence/
+│
+├── domain/                         ◄── DOMINIO PURO (0 dependencias externas, TypeScript puro)
+│   ├── model/
+│   │   ├── Room.ts                 (Agregado raíz: estado privado y métodos de mutación protegidos)
+│   │   ├── Participant.ts          (Entidad: identidad, rol HOST/GUEST)
+│   │   ├── PresenceState.ts        (Value Object: Online, Reconnecting, Offline)
+│   │   └── RoomCapacity.ts         (Value Object: invariante de aforo <= 10 y cupo prioritario)
+│   ├── events/
+│   │   ├── ParticipantJoined.ts    (Evento de dominio)
+│   │   └── ParticipantDisconnected.ts
+│   └── ports/
+│       ├── RoomRepository.ts       (Puerto secundario: persistencia)
+│       └── PresenceNotifier.ts     (Puerto secundario: difusión en tiempo real)
+│
+├── use-cases/                      ◄── REBANADAS VERTICALES INTERNAS (Casos de uso atómicos)
+│   ├── provision-room/
+│   │   ├── provision-room.use-case.ts
+│   │   └── provision-room.spec.ts
+│   ├── redeem-invitation/
+│   │   ├── redeem-invitation.use-case.ts
+│   │   └── redeem-invitation.spec.ts
+│   └── handle-heartbeat/
+│       ├── handle-heartbeat.use-case.ts
+│       └── handle-heartbeat.spec.ts
+│
+├── infrastructure/                 ◄── ADAPTADORES SECUNDARIOS (Implementación de puertos)
+│   ├── persistence/
+│   │   └── room-sqlite.repository.ts
+│   └── realtime/
+│       └── websocket-presence.notifier.ts
+│
+└── public-api.ts                   ◄── BARRERA DE ENCAPSULACIÓN (Único export público hacia el exterior)
+```
+
+---
+
+> 💡 **Invariante Fundamental:**
+> *"El Bounded Context define la frontera de autonomía y consistencia transaccional; el Dominio Rico centraliza y protege las invariantes para que no se desparramen; y las Rebanadas Verticales internas orquestan cada caso de uso con máxima cohesión y cero burocracia."*
+
+
 
 
