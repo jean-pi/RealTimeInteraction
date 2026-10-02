@@ -66,14 +66,14 @@ El Módulo 01 es la autoridad central de presencia. No conoce la interfaz gráfi
 * **Evento `user:kicked` (Expulsión ejecutada por el Anfitrión):**
   * `window-manager` (Módulo 03): Puga de la memoria y la persistencia todos los contenedores y datos asociados a ese usuario (Regla 12.8).
 
-### Contrato B: Sistema de Coordenadas y Viewport (Módulo 02 ◄──► Módulo 03)
+### Contrato B: Sistema de Coordenadas y Viewport Fijo (Módulo 02 ◄──► Módulo 03)
 ¿Cómo conviven la pizarra de dibujo y las ventanas flotantes en la misma pantalla sin acoplarse?
-* **Contrato Matemático de Espacio:** Comparten una función de transformación espacial pura:
-  $$\text{screenToWorld}(x_{\text{pantalla}}, y_{\text{pantalla}}, \text{zoom}, \text{pan}) \longrightarrow (x_{\text{mundo}}, y_{\text{mundo}})$$
-* **Aislamiento de Renderizado:**
-  * La **Pizarra (Módulo 02)** opera en una capa de Canvas 2D / WebGL de alto rendimiento (flujo continuo de coordenadas a 60 fps).
-  * Las **Ventanas (Módulo 03)** se renderizan en una capa superior del DOM HTML (`<div>` con eventos de puntero, accesibilidad y transformaciones CSS).
-* **Desacoplamiento Total:** Puedes deshabilitar completamente la pizarra de dibujo y el gestor de ventanas sigue funcionando al 100%, y viceversa.
+* **Contrato Matemático de Espacio (Resolución Virtual Fija):** Se establece la prohibición estricta de *Zoom* y *Pan*. El lienzo tiene una resolución interna fija (ej. `1920x1080`). La única transformación espacial es un escalado CSS proporcional para ajustar este lienzo al tamaño del monitor del usuario (`object-fit: contain`).
+  $$\text{coordenada}_{\text{interna}} = \text{coordenada}_{\text{pantalla}} \times \text{factor\_de\_escala\_monitor}$$
+* **Aislamiento de Renderizado (El Híbrido DOM/Canvas):**
+  * La **Pizarra (Módulo 02)** opera al **fondo** (`z-index: 1`) en un Canvas 2D estático.
+  * Las **Ventanas (Módulo 03)** se renderizan al **frente** (`z-index: 10`) como elementos del DOM HTML.
+* **Modo de Interacción (Pointer Events):** Cuando se dibuja, el Canvas intercepta los clics (`pointer-events: auto`). Al usar la herramienta "Puntero/Selección", el Canvas se vuelve invisible a los clics (`pointer-events: none`), permitiendo al usuario arrastrar e interactuar con las ventanas del Módulo 03 de forma nativa.
 
 ### Contrato C: Patrón Host-Plugin (Módulo 03 ◄──► Módulo 04)
 Para evitar que el Gestor de Ventanas conozca la lógica de cada herramienta, se aplica el **Principio Abierto/Cerrado (OCP)**:
@@ -125,3 +125,21 @@ Esta separación en **4 Bounded Contexts**:
 2. Evita la sobre-modularización (no crea módulos para detalles visuales/CSS).
 3. Evita el "módulo monstruo" separando el motor gráfico de dibujo, el gestor de ventanas y los plugins funcionales.
 4. Permite que la especificación de cada módulo sea concisa, independiente y directamente ejecutable mediante TDD.
+
+---
+
+## 6. Puntos Pendientes de Definición Arquitectónica (Módulo 02)
+
+Durante el análisis crítico del Motor de Pizarra Vectorial, se identificaron 3 falencias que deben ser discutidas y definidas para evitar deuda técnica:
+
+1. **La guerra de los Relojes (Desincronización del Z-Index):**
+   - *Problema:* El Z-Index de los trazos depende del reloj local del cliente (`timestamp`). Relojes desincronizados causan inconsistencia visual entre usuarios al superponer tinta.
+   - *Decisión Pendiente:* ¿Implementar Orden Global dictado por el Servidor (Z-Index autoincremental estricto) o intentar Sincronización NTP en el cliente?
+
+2. **El abismo de las "Bandas Negras" (Clipping de Pantalla):**
+   - *Problema:* Dispositivos con diferente Aspect Ratio (ej. iPad 4:3) tendrán "bandas negras" de relleno. Si el usuario dibuja sobre ellas, se enviarán coordenadas matemáticas fuera de la Resolución Virtual (1920x1080).
+   - *Decisión Pendiente:* ¿Implementar Zero-Clipping Estricto (el Frontend ignora/corta matemáticamente el trazo) o permitir un Lienzo Extensible dinámico?
+
+3. **El caos del pulpo (Ambigüedad Multi-Touch):**
+   - *Problema:* No está definido qué ocurre si un hardware táctil emite eventos de 5 dedos dibujando a la vez, lo cual multiplicaría la carga del WebSocket y rompería la lógica del Throttling.
+   - *Decisión Pendiente:* ¿Forzar Single-Touch (ignorar toques secundarios a nivel local) o invertir esfuerzo técnico en dar Soporte Multi-Touch Real empaquetando trazados paralelos?

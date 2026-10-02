@@ -86,8 +86,8 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 ### RN-04: Capacidad y Política de Aforo
 * **RN-04.1.** El aforo máximo concurrente de la sala está parametrizado por la capacidad asignada al lienzo (`aforo_maximo`).
 * **RN-04.2. Régimen Inicial de Construcción:** Durante esta etapa de desarrollo, todas las salas se aprovisionan con una capacidad máxima de **10 usuarios conectados simultáneamente sin costo ni barreras de pago**. El modelo de datos y las validaciones de conexión quedan desacoplados para admitir límites diferenciados en el futuro (ej. 2 concurrentes en capa gratuita y 10 en planes ampliados) mediante una simple parametrización de campo sin requerir refactorizaciones de esquema.
-* **RN-04.3. Reserva Garantizada del Anfitrión:** El Anfitrión siempre tiene garantizado el ingreso a su propio lienzo. La sala admite un máximo de `aforo_maximo - 1` invitados concurrentes si el anfitrión está conectado, o hasta `aforo_maximo` invitados si el anfitrión está ausente. Si la sala está llena con invitados y el anfitrión se conecta, el sistema garantiza su cupo prioritario.
-* **RN-04.4. Rechazo en Puerta (Sala Llena):** Si la sala alcanza su aforo concurrente activo, cualquier intento de conexión entrante es rechazado inmediatamente indicando que la sala ha alcanzado su capacidad máxima (`ROOM_CAPACITY_REACHED`).
+* **RN-04.3. Reserva Garantizada del Anfitrión (Cupo Estricto):** El Anfitrión siempre tiene garantizado el ingreso a su propio lienzo. Para evitar lógicas complejas de desalojo y condiciones de carrera, la sala reserva estrictamente un cupo permanente para el anfitrión. Por lo tanto, el sistema admite un **MÁXIMO ABSOLUTO** de `aforo_maximo - 1` invitados concurrentes en todo momento, sin importar si el anfitrión está conectado o ausente.
+* **RN-04.4. Rechazo en Puerta (Sala Llena):** Si la sala alcanza su aforo concurrente activo de invitados, cualquier intento de conexión entrante es rechazado inmediatamente indicando que la sala ha alcanzado su capacidad máxima (`ROOM_CAPACITY_REACHED`).
 * **RN-04.5.** Solo se admite a un nuevo participante cuando un cupo se libere por salida voluntaria, desconexión confirmada o expulsión.
 
 ### RN-05: Ciclo de Vida del Acceso (Membresía Persistente)
@@ -114,6 +114,12 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 * **RN-08.2. Expulsión por el Anfitrión:** El Anfitrión revoca forzosamente la membresía de un participante. Se corta su conexión en tiempo real, se le redirige a su lienzo personal y se bloquea su reingreso salvo que en el futuro obtenga una nueva invitación válida.
 * **RN-08.3.** No existen listas negras permanentes ni salas de espera previas en esta etapa.
 
+### RN-09: Control de Sesión Única por Usuario (Single Device / Tab)
+* **RN-09.1. Conexión Única Activa:** Una misma cuenta de usuario solo puede mantener **una (1) conexión WebSocket activa** en toda la plataforma en un momento dado, sin importar la sala.
+* **RN-09.2. Toma de Control Automática:** Si un usuario abre la aplicación en una nueva pestaña o dispositivo (o si inicia sesión en medio del flujo de un enlace de invitación), esta nueva conexión **toma el control inmediato** y se convierte en la sesión activa.
+* **RN-09.3. Desalojo del Dispositivo Anterior:** Al ocurrir la toma de control, el servidor identifica el socket anterior de la misma cuenta y lo desconecta inmediatamente, emitiendo un evento de tipo `SESSION_SUPERSEDED`.
+* **RN-09.4. Flujo de Recuperación (Modal "Continuar aquí"):** El cliente que fue desconectado muestra una pantalla de bloqueo con el mensaje "Sesión continuada en otro dispositivo o pestaña" y un botón "Continuar aquí". Al hacer clic, la pestaña antigua inicia una nueva conexión que, por la misma regla RN-09.2, le arrebatará el control a la pestaña más reciente.
+
 ---
 
 ## 3. Requisitos Funcionales (RF)
@@ -128,7 +134,8 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 | **RF-06** | Visualización de Presencia | La sala debe desplegar la lista de todos los usuarios con membresía, indicando en tiempo real si están **Conectados (Presentes)** o **Desconectados (Ausentes)**. | Al abrirse o cerrarse un socket, todos los miembros conectados reciben el evento de cambio de estado en tiempo real. |
 | **RF-07** | Salida Voluntaria | Un invitado debe disponer de la opción explícita *Salir del Lienzo*. | Al confirmar, se elimina su registro de membresía, se desconecta el socket de la sala y se le redirige a su lienzo personal. |
 | **RF-08** | Expulsión por Anfitrión | El Anfitrión debe contar con un control de expulsión en la lista de participantes frente a cada invitado. | Al ejecutar la expulsión, el servidor cierra forzosamente la conexión del invitado, revoca su membresía y notifica la baja a los demás participantes. |
-| **RF-09** | Gestión de Reconexión | Si un cliente pierde conectividad temporalmente, el cliente debe mostrar un estado de reconexión y el servidor debe otorgar una ventana de gracia antes de marcarlo como ausente. | Caídas breves de red (< 10s) no disparan eventos falsos de salida definitiva. |
+| **RF-09** | Gestión de Reconexión | Si un cliente pierde conectividad temporalmente, el cliente debe mostrar un estado de reconexión y el servidor debe otorgar una ventana de gracia antes de marcarlo como ausente. | Caídas breves de red (< 15s) no disparan eventos falsos de salida definitiva. |
+| **RF-10** | Control de Sesión Única (Single Device) | El sistema debe impedir conexiones concurrentes del mismo usuario en múltiples pestañas/dispositivos mediante un mecanismo de toma de control. | Al abrir una nueva sesión, la anterior recibe un evento `SESSION_SUPERSEDED` y muestra el modal "Continuar aquí" que permite retomar el control atómicamente. |
 
 ---
 
@@ -137,7 +144,7 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 * **RNF-01. Latencia de Notificación de Presencia:** La difusión de un cambio de estado de presencia (entrada, salida o pérdida de latido) a todos los clientes concurrentes de una sala no debe superar los **150 ms** en condiciones normales de red.
 * **RNF-02. Protocolo de Latido (*Heartbeat*):**
   * El cliente enviará un ping periódico al servidor cada **5 segundos**.
-  * El servidor mantendrá una ventana de gracia de **10 segundos** de silencio antes de marcar al usuario en estado `RECONNECTING` y posteriormente `OFFLINE`.
+  * El servidor mantendrá una ventana de gracia de **15 segundos** de silencio antes de marcar al usuario en estado `RECONNECTING` y posteriormente `OFFLINE`.
 * **RNF-03. Seguridad y Autorización en Handshake:**
   * El acceso a la sala mediante WebSockets o WebTransport requiere un token de sesión criptográficamente firmado (JWT o sesión segura).
   * El servidor valida antes de aceptar la conexión que el usuario posea una membresía activa (`ACTIVE`) para ese `canvas_id`.
@@ -251,9 +258,9 @@ Modela el estado del participante en tiempo real dentro del lienzo:
                   │                                        │
                   │ Pérdida de Latido (> 5s)               │
                   ▼                                        │
-           [ RECONECTANDO ] (Ventana Gracia < 10s)         │
+           [ RECONECTANDO ] (Ventana Gracia < 15s)         │
              │           │                                 │
-   Latido OK │           │ Timeout de Gracia (> 10s)       │
+   Latido OK │           │ Timeout de Gracia (> 15s)       │
              │           └─────────────────────────────────┘
              ▼
        [ CONECTADO ]
