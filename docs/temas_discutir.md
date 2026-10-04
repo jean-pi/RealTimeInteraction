@@ -22,10 +22,13 @@ Para garantizar que cada capacidad sea autónoma, testeable en aislamiento y aco
                                │           MÓDULO 01            │
                                │     room-presence (Núcleo)     │
                                └───────────────┬────────────────┘
-                                               │
-                                  Bus de Eventos de Presencia
-                                  (user:joined, user:left,
-                                   user:disconnected, user:kicked)
+                                               │ Bus de Eventos (Auth/Presencia)
+                                               ▼
+                               ┌────────────────────────────────┐
+                               │          MÓDULO 01.5           │
+                               │    workspace-stage (Shell)     │
+                               │  (Contenedor Padre 1920x1080)  │
+                               └───────────────┬────────────────┘
                                                │
                  ┌─────────────────────────────┼─────────────────────────────┐
                  │                             │                             │
@@ -127,19 +130,3 @@ Esta separación en **4 Bounded Contexts**:
 4. Permite que la especificación de cada módulo sea concisa, independiente y directamente ejecutable mediante TDD.
 
 ---
-
-## 6. Puntos Pendientes de Definición Arquitectónica (Módulo 02)
-
-Durante el análisis crítico del Motor de Pizarra Vectorial, se identificaron 3 falencias que deben ser discutidas y definidas para evitar deuda técnica:
-
-1. **La guerra de los Relojes (Desincronización del Z-Index):**
-   - *Problema:* El Z-Index de los trazos depende del reloj local del cliente (`timestamp`). Relojes desincronizados causan inconsistencia visual entre usuarios al superponer tinta.
-   - *Decisión Pendiente:* ¿Implementar Orden Global dictado por el Servidor (Z-Index autoincremental estricto) o intentar Sincronización NTP en el cliente?
-
-2. **El abismo de las "Bandas Negras" (Clipping de Pantalla):**
-   - *Problema:* Dispositivos con diferente Aspect Ratio (ej. iPad 4:3) tendrán "bandas negras" de relleno. Si el usuario dibuja sobre ellas, se enviarán coordenadas matemáticas fuera de la Resolución Virtual (1920x1080).
-   - *Decisión Pendiente:* ¿Implementar Zero-Clipping Estricto (el Frontend ignora/corta matemáticamente el trazo) o permitir un Lienzo Extensible dinámico?
-
-3. **El caos del pulpo (Ambigüedad Multi-Touch):**
-   - *Problema:* No está definido qué ocurre si un hardware táctil emite eventos de 5 dedos dibujando a la vez, lo cual multiplicaría la carga del WebSocket y rompería la lógica del Throttling.
-   - *Decisión Pendiente:* ¿Forzar Single-Touch (ignorar toques secundarios a nivel local) o invertir esfuerzo técnico en dar Soporte Multi-Touch Real empaquetando trazados paralelos?

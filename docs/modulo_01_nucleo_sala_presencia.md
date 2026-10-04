@@ -53,9 +53,9 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
   * *Razón de diseño:* Garantizar la persistencia y disponibilidad de la colaboración distribuida.
 
 * **ANTI-08: Prohibición de Listas Negras Permanentes (Bans) en esta Etapa**
-  * *Declaración:* La expulsión de un participante NO registra una lista negra ni bloqueo permanente de usuario.
-  * *Consecuencia técnica:* La acción `KICK` destruye la membresía activa y cierra el socket. No se debe modelar una tabla `Blacklist` ni comprobaciones de IP/ID vetado. Si en el futuro el usuario obtiene un nuevo enlace/código válido generado tras una renovación, podrá canjearlo.
-  * *Razón de diseño:* Mantener el modelo libre de estado punitivo complejo que corresponde a módulos de moderación avanzada.
+  * *Declaración:* La expulsión de un participante NO registra una lista negra global ni un bloqueo permanente de cuenta.
+  * *Consecuencia técnica:* La acción `KICK` marca la membresía como `REVOKED` y guarda el timestamp de la expulsión. **Inmunidad de Invitación:** Un usuario expulsado no puede volver a ingresar usando las credenciales (código/enlace) que estaban vigentes al momento de su expulsión. Solo podrá reingresar si el Anfitrión renueva la invitación y el usuario obtiene las nuevas credenciales (creadas *después* de su expulsión).
+  * *Razón de diseño:* Resuelve el bucle de "reingreso inmediato del troll" sin necesidad de crear complejas tablas de baneos (Blacklists), utilizando simple validación de timestamps.
 
 ---
 
@@ -90,10 +90,10 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 * **RN-04.4. Rechazo en Puerta (Sala Llena):** Si la sala alcanza su aforo concurrente activo de invitados, cualquier intento de conexión entrante es rechazado inmediatamente indicando que la sala ha alcanzado su capacidad máxima (`ROOM_CAPACITY_REACHED`).
 * **RN-04.5.** Solo se admite a un nuevo participante cuando un cupo se libere por salida voluntaria, desconexión confirmada o expulsión.
 
-### RN-05: Ciclo de Vida del Acceso (Membresía Persistente)
-* **RN-05.1.** El canje exitoso de una invitación otorga **membresía persistente** al lienzo.
-* **RN-05.2.** El usuario no necesita volver a introducir el código ni hacer clic en el enlace para visitas posteriores.
-* **RN-05.3.** La membresía se extingue únicamente por:
+### RN-05: Ciclo de Vida del Acceso y Navegación
+* **RN-05.1.** El canje exitoso de una invitación registra al usuario en el lienzo.
+* **RN-05.2.** Dado que no existe un selector de salas en la interfaz (ANTI-02), **el enlace o código de invitación actúa como el único vehículo de navegación** para los invitados. Para volver a entrar a una sala previamente visitada, el usuario debe usar nuevamente el enlace o código.
+* **RN-05.3.** La membresía (y el derecho de acceso con ese enlace) se extingue por:
   * Salida voluntaria del invitado (*Abandonar sala*); o
   * Expulsión ejecutada por el Anfitrión.
 
@@ -111,14 +111,14 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 
 ### RN-08: Salida Voluntaria vs. Expulsión
 * **RN-08.1. Salida Voluntaria:** El invitado decide revocar su propia membresía. Su *Lienzo Actual* se reconfigura automáticamente a su lienzo personal. Para regresar en el futuro, requerirá una nueva invitación válida.
-* **RN-08.2. Expulsión por el Anfitrión:** El Anfitrión revoca forzosamente la membresía de un participante. Se corta su conexión en tiempo real, se le redirige a su lienzo personal y se bloquea su reingreso salvo que en el futuro obtenga una nueva invitación válida.
+* **RN-08.2. Expulsión por el Anfitrión:** El Anfitrión revoca forzosamente la membresía de un participante (`REVOKED`). Se corta su conexión en tiempo real, se le redirige a su lienzo personal y se bloquea su reingreso con las credenciales actuales. Solo podrá volver si el Anfitrión ejecuta "Renovar Invitación" y le comparte las nuevas credenciales.
 * **RN-08.3.** No existen listas negras permanentes ni salas de espera previas en esta etapa.
 
 ### RN-09: Control de Sesión Única por Usuario (Single Device / Tab)
 * **RN-09.1. Conexión Única Activa:** Una misma cuenta de usuario solo puede mantener **una (1) conexión WebSocket activa** en toda la plataforma en un momento dado, sin importar la sala.
 * **RN-09.2. Toma de Control Automática:** Si un usuario abre la aplicación en una nueva pestaña o dispositivo (o si inicia sesión en medio del flujo de un enlace de invitación), esta nueva conexión **toma el control inmediato** y se convierte en la sesión activa.
 * **RN-09.3. Desalojo del Dispositivo Anterior:** Al ocurrir la toma de control, el servidor identifica el socket anterior de la misma cuenta y lo desconecta inmediatamente, emitiendo un evento de tipo `SESSION_SUPERSEDED`.
-* **RN-09.4. Flujo de Recuperación (Modal "Continuar aquí"):** El cliente que fue desconectado muestra una pantalla de bloqueo con el mensaje "Sesión continuada en otro dispositivo o pestaña" y un botón "Continuar aquí". Al hacer clic, la pestaña antigua inicia una nueva conexión que, por la misma regla RN-09.2, le arrebatará el control a la pestaña más reciente.
+* **RN-09.4. Flujo de Recuperación (Bloqueo Pasivo):** Para evitar bucles infinitos de robo de sesión entre dispositivos automáticos (Ping-Pong), la pestaña que fue desconectada muestra una pantalla de bloqueo terminal con el mensaje *"Sesión iniciada en otro dispositivo"*. **NO** debe existir un botón de reconexión rápida. Si el usuario desea retomar el control en esa pantalla, deberá recargar la página (F5) explícitamente.
 
 ---
 
@@ -142,15 +142,17 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 ## 4. Requisitos No Funcionales (RNF)
 
 * **RNF-01. Latencia de Notificación de Presencia:** La difusión de un cambio de estado de presencia (entrada, salida o pérdida de latido) a todos los clientes concurrentes de una sala no debe superar los **150 ms** en condiciones normales de red.
-* **RNF-02. Protocolo de Latido (*Heartbeat*):**
+* **RNF-02. Protocolo de Latido (*Heartbeat*) y Tolerancia a Fallos:**
   * El cliente enviará un ping periódico al servidor cada **5 segundos**.
-  * El servidor mantendrá una ventana de gracia de **15 segundos** de silencio antes de marcar al usuario en estado `RECONNECTING` y posteriormente `OFFLINE`.
+  * El servidor mantendrá una ventana de gracia inicial de **15 segundos** de silencio antes de marcar al usuario en estado `RECONNECTING` (para que la UI avise a los demás).
+  * **Timeout Absoluto:** Si el usuario permanece en estado `RECONNECTING` durante **30 segundos adicionales** sin recuperar el latido (45s de silencio total), el servidor decreta la desconexión definitiva (`OFFLINE`), purga el socket de la memoria y emite el evento `USER_LEFT`.
 * **RNF-03. Seguridad y Autorización en Handshake:**
   * El acceso a la sala mediante WebSockets o WebTransport requiere un token de sesión criptográficamente firmado (JWT o sesión segura).
   * El servidor valida antes de aceptar la conexión que el usuario posea una membresía activa (`ACTIVE`) para ese `canvas_id`.
 * **RNF-04. Concurrencia Aislada:** El sistema debe aislar las salas entre sí; la carga o eventos de una sala no deben interferir en la latencia o capacidad de las salas vecinas.
 * **RNF-05. Idempotencia y Atomicidad:** La renovación de credenciales de invitación y el canje de accesos deben ejecutarse bajo transacciones atómicas para evitar condiciones de carrera (*race conditions* en concurrencia límite).
 * **RNF-06. Trazabilidad y Auditoría:** Todos los eventos de ciclo de vida de sala deben registrarse con estructura uniforme: `USER_JOINED`, `USER_LEFT`, `USER_KICKED`, `HEARTBEAT_TIMEOUT`, `INVITATION_RENEWED`.
+* **RNF-07. Defensa contra Fuerza Bruta (Rate Limiting):** El endpoint encargado de validar el código corto de 6 dígitos debe implementar estrangulamiento estricto (ej. bloqueo de IP por 15 minutos tras 5 intentos inválidos consecutivos) para impedir el descubrimiento masivo de salas mediante scripts de fuerza bruta.
 
 ---
 
@@ -258,9 +260,9 @@ Modela el estado del participante en tiempo real dentro del lienzo:
                   │                                        │
                   │ Pérdida de Latido (> 5s)               │
                   ▼                                        │
-           [ RECONECTANDO ] (Ventana Gracia < 15s)         │
+           [ RECONECTANDO ] (Ausencia de latido 15s a 45s) │
              │           │                                 │
-   Latido OK │           │ Timeout de Gracia (> 15s)       │
+   Latido OK │           │ Timeout Absoluto (> 45s)        │
              │           └─────────────────────────────────┘
              ▼
        [ CONECTADO ]
@@ -332,6 +334,6 @@ Modela el ciclo de vida en tiempo de ejecución del servidor para garantizar cos
              [ DORMANT ] (Desalojo de Memoria y Cierre de Canales)
 ```
 
-* **DORM-01. Desalojo Inmediato de Recursos:** Cuando el conteo de sockets concurrentes de una sala llega a cero (`COUNT(presencias_activas) === 0`), la sala transiciona a estado `DORMANT`. El servidor destruye la instancia en memoria, cancela las suscripciones pub/sub y libera descriptores de red.
-* **DORM-02. Reactivación Atómica y Rehidratación:** Cualquier intento de conexión válido hacia una sala en estado `DORMANT` despierta la sala automáticamente, rehidratando su estado persistente desde la base de datos a memoria en menos de 100 ms antes de admitir al participante.
+* **DORM-01. Desalojo Controlado de Recursos (Cooldown):** Para evitar *DB Thrashing* provocado por usuarios con conexiones inestables que entran y salen intermitentemente, la transición a `DORMANT` **no es inmediata**. Cuando el conteo de sockets de una sala llega a cero (`COUNT(presencias_activas) === 0`), el servidor inicia un temporizador de gracia (ej. 60 segundos). Solo si el temporizador expira sin nuevas conexiones, el servidor destruye la instancia en memoria, cancela las suscripciones pub/sub y libera la sala.
+* **DORM-02. Reactivación Atómica y Rehidratación:** Cualquier intento de conexión válido hacia una sala en estado `DORMANT` (o en su ventana de gracia de cierre) aborta el temporizador de destrucción o despierta la sala automáticamente, rehidratando su estado persistente desde la base de datos a memoria en menos de 100 ms.
 * **DORM-03. Independencia de la Presencia del Anfitrión:** La sala permanece en estado `ACTIVE` mientras exista al menos un participante conectado (sea invitado o anfitrión). La ausencia del anfitrión o su migración hacia otra sala ajena no altera el estado `ACTIVE` si sus invitados continúan dentro.
