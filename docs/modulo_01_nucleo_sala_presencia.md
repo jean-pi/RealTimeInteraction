@@ -52,7 +52,7 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
   * *Consecuencia técnica:* La sala reside y se orquesta en la infraestructura del servidor central, no en el cliente del anfitrión como nodo P2P primario. Si el anfitrión se desconecta, la sala sigue viva y los invitados continúan operando.
   * *Razón de diseño:* Garantizar la persistencia y disponibilidad de la colaboración distribuida.
 
-* **ANTI-08: Prohibición de Listas Negras Permanentes (Bans) en esta Etapa**
+* **ANTI-08: Prohibición de Listas Negras Permanentes (Bans)**
   * *Declaración:* La expulsión de un participante NO registra una lista negra global ni un bloqueo permanente de cuenta.
   * *Consecuencia técnica:* La acción `KICK` marca la membresía como `REVOKED` y guarda el timestamp de la expulsión. **Inmunidad de Invitación:** Un usuario expulsado no puede volver a ingresar usando las credenciales (código/enlace) que estaban vigentes al momento de su expulsión. Solo podrá reingresar si el Anfitrión renueva la invitación y el usuario obtiene las nuevas credenciales (creadas *después* de su expulsión).
   * *Razón de diseño:* Resuelve el bucle de "reingreso inmediato del troll" sin necesidad de crear complejas tablas de baneos (Blacklists), utilizando simple validación de timestamps.
@@ -92,7 +92,7 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 
 ### RN-05: Ciclo de Vida del Acceso y Navegación
 * **RN-05.1.** El canje exitoso de una invitación registra al usuario en el lienzo.
-* **RN-05.2.** Dado que no existe un selector de salas en la interfaz (ANTI-02), **el enlace o código de invitación actúa como el único vehículo de navegación** para los invitados. Para volver a entrar a una sala previamente visitada, el usuario debe usar nuevamente el enlace o código.
+* **RN-05.2.** Dado que no existe un selector de salas en la interfaz (ANTI-02), la navegación explícita entre salas depende del **enlace o código de invitación**. Si el usuario cambia de sala, necesitará el código para regresar. Sin embargo, por la regla RN-02.5, si simplemente cierra el navegador, al volver ingresará automáticamente a la última sala visitada sin requerir el enlace.
 * **RN-05.3.** La membresía (y el derecho de acceso con ese enlace) se extingue por:
   * Salida voluntaria del invitado (*Abandonar sala*); o
   * Expulsión ejecutada por el Anfitrión.
@@ -107,10 +107,10 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 ### RN-07: Renovación Atómica de Invitaciones
 * **RN-07.1.** Solo el Anfitrión puede renovar las credenciales de acceso de su lienzo.
 * **RN-07.2.** La renovación invalida inmediatamente el enlace y el código anteriores para nuevos ingresos, generando atómicamente un nuevo par de credenciales.
-* **RN-07.3.** La renovación no revoca el acceso a quienes ya fueron admitidos previamente ni expulsa a los usuarios conectados en ese instante.
+* **RN-07.3.** La renovación no revoca el acceso a quienes ya fueron admitidos previamente ni expulsa a los usuarios conectados en ese instante. Para evitar que los miembros vigentes queden bloqueados al cambiar de sala, **las credenciales antiguas seguirán funcionando como llave de navegación única y exclusivamente para los usuarios que conservan su membresía activa en la BD**. Para usuarios nuevos o expulsados, el código viejo será rechazado.
 
 ### RN-08: Salida Voluntaria vs. Expulsión
-* **RN-08.1. Salida Voluntaria:** El invitado decide revocar su propia membresía. Su *Lienzo Actual* se reconfigura automáticamente a su lienzo personal. Para regresar en el futuro, requerirá una nueva invitación válida.
+* **RN-08.1. Salida Voluntaria:** El invitado decide revocar su propia membresía (liberando un cupo). Su *Lienzo Actual* se reconfigura automáticamente a su lienzo personal. Para regresar en el futuro, no requiere obligatoriamente una "nueva" invitación; puede reutilizar el mismo código/enlace original siempre y cuando el Anfitrión no lo haya rotado.
 * **RN-08.2. Expulsión por el Anfitrión:** El Anfitrión revoca forzosamente la membresía de un participante (`REVOKED`). Se corta su conexión en tiempo real, se le redirige a su lienzo personal y se bloquea su reingreso con las credenciales actuales. Solo podrá volver si el Anfitrión ejecuta "Renovar Invitación" y le comparte las nuevas credenciales.
 * **RN-08.3.** No existen listas negras permanentes ni salas de espera previas en esta etapa.
 
@@ -130,12 +130,12 @@ Para prevenir alucinaciones de modelos de lenguaje, evitar sobreingeniería inne
 | **RF-02** | Resolución de Lienzo Actual | Al autenticarse, el cliente debe redirigir al usuario al lienzo registrado en su puntero `current_canvas_id`. | Si el puntero apunta a una sala ajena con acceso vigente, entra a esa sala; si el acceso fue revocado o es nulo, entra a su lienzo propio. |
 | **RF-03** | Generación de Invitación | El Anfitrión debe poder consultar y copiar el enlace directo y el código de 6 caracteres de su sala. | La interfaz del Anfitrión expone el enlace y el código con acción de copiado en un clic. |
 | **RF-04** | Canje de Invitación | Un usuario autenticado puede ingresar a una sala navegando al enlace de invitación o introduciendo el código de 6 dígitos en la pantalla de unión. | El sistema valida la vigencia del código, crea el registro de membresía y actualiza el *Lienzo Actual* del usuario. |
-| **RF-05** | Validación de Aforo en Puerta | El servidor debe interceptar cada intento de conexión y verificar si la concurrencia activa es menor a 10. | Si hay 10 conectados, el handshake de conexión se rechaza con código específico `ROOM_CAPACITY_REACHED`. |
+| **RF-05** | Validación de Aforo en Puerta | El servidor intercepta intentos de conexión y verifica la concurrencia. Si es Invitado, valida que haya `< (aforo_maximo - 1)` invitados. | Si el cupo de invitados está lleno, el handshake se rechaza con `ROOM_CAPACITY_REACHED`. El Anfitrión siempre ingresa. |
 | **RF-06** | Visualización de Presencia | La sala debe desplegar la lista de todos los usuarios con membresía, indicando en tiempo real si están **Conectados (Presentes)** o **Desconectados (Ausentes)**. | Al abrirse o cerrarse un socket, todos los miembros conectados reciben el evento de cambio de estado en tiempo real. |
 | **RF-07** | Salida Voluntaria | Un invitado debe disponer de la opción explícita *Salir del Lienzo*. | Al confirmar, se elimina su registro de membresía, se desconecta el socket de la sala y se le redirige a su lienzo personal. |
 | **RF-08** | Expulsión por Anfitrión | El Anfitrión debe contar con un control de expulsión en la lista de participantes frente a cada invitado. | Al ejecutar la expulsión, el servidor cierra forzosamente la conexión del invitado, revoca su membresía y notifica la baja a los demás participantes. |
 | **RF-09** | Gestión de Reconexión | Si un cliente pierde conectividad temporalmente, el cliente debe mostrar un estado de reconexión y el servidor debe otorgar una ventana de gracia antes de marcarlo como ausente. | Caídas breves de red (< 15s) no disparan eventos falsos de salida definitiva. |
-| **RF-10** | Control de Sesión Única (Single Device) | El sistema debe impedir conexiones concurrentes del mismo usuario en múltiples pestañas/dispositivos mediante un mecanismo de toma de control. | Al abrir una nueva sesión, la anterior recibe un evento `SESSION_SUPERSEDED` y muestra el modal "Continuar aquí" que permite retomar el control atómicamente. |
+| **RF-10** | Control de Sesión Única (Single Device) | El sistema debe impedir conexiones concurrentes del mismo usuario en múltiples pestañas/dispositivos mediante un mecanismo de toma de control. | Al abrir una nueva sesión, la anterior recibe un evento `SESSION_SUPERSEDED` y muestra una pantalla pasiva de bloqueo (sin reconexión automática). |
 
 ---
 
@@ -298,22 +298,23 @@ Modela la vigencia del enlace y código de acceso:
        [ REVOCADA ] ───> Se genera atómicamente un nuevo registro [ VIGENTE ]
 ```
 
-### 6.4. Estado de Aforo de la Sala (Control de Capacidad)
-Modela la compuerta de admisión en tiempo real frente al límite dinámico de concurrencia (`aforo_maximo`):
+### 6.4. Estado de Aforo de la Sala (Control de Capacidad de Invitados)
+Modela la compuerta de admisión en tiempo real. Recordar que el Anfitrión tiene un cupo estrictamente reservado (RN-04.3), por lo que el estado `[ LLENA ]` aplica exclusivamente al límite de invitados (`aforo_maximo - 1`).
 
-```
+```text
         ┌────────────────────────────────────────────────────────┐
         │                                                        │
         ▼                                                        │
-  [ DISPONIBLE ] (Conectados < aforo_maximo)                     │
+  [ DISPONIBLE ] (Invitados < aforo_maximo - 1)                  │
         │                                                        │
-        │ Conexión entrante alcanza el aforo_maximo              │
+        │ Conexión de invitado alcanza el límite                 │
         ▼                                                        │
-      [ LLENA ] (Conectados == aforo_maximo)                     │
+      [ LLENA ] (Invitados == aforo_maximo - 1)                  │
         │        │                                               │
-        │        │ Intento de conexión entrante: RECHAZO INMEDIATO
+        │        │ Intento de invitado entrante: RECHAZO INMEDIATO
+        │        │ (El Anfitrión siempre puede entrar)           │
         │        │                                               │
-        │        │ Usuario se desconecta, abandona o es expulsado│
+        │        │ Invitado se desconecta, abandona o es expulsado
         │        └───────────────────────────────────────────────┘
         ▼
   [ DISPONIBLE ]
@@ -322,7 +323,7 @@ Modela la compuerta de admisión en tiempo real frente al límite dinámico de c
 ### 6.5. Ciclo de Vida Operativo de la Sala (Hibernación: Active vs. Dormant)
 Modela el ciclo de vida en tiempo de ejecución del servidor para garantizar costo computacional cero ($0) cuando no hay participantes:
 
-```
+```text
              [ DORMANT ] (Hibernada en BD / Cero Cómputo)
                   │
                   │ Handshake WebSocket entrante válido (Conectados > 0)
@@ -331,7 +332,12 @@ Modela el ciclo de vida en tiempo de ejecución del servidor para garantizar cos
                   │
                   │ Desconexión del último participante (Conectados == 0)
                   ▼
-             [ DORMANT ] (Desalojo de Memoria y Cierre de Canales)
+           [ COOLDOWN ] (Temporizador de Gracia ej. 60s)
+                  │    │
+   Nueva conexión │    │ Expira el temporizador
+     (Abortar)    │    │ (Limpieza de memoria y Pub/Sub)
+                  │    ▼
+                  └──> [ DORMANT ] 
 ```
 
 * **DORM-01. Desalojo Controlado de Recursos (Cooldown):** Para evitar *DB Thrashing* provocado por usuarios con conexiones inestables que entran y salen intermitentemente, la transición a `DORMANT` **no es inmediata**. Cuando el conteo de sockets de una sala llega a cero (`COUNT(presencias_activas) === 0`), el servidor inicia un temporizador de gracia (ej. 60 segundos). Solo si el temporizador expira sin nuevas conexiones, el servidor destruye la instancia en memoria, cancela las suscripciones pub/sub y libera la sala.
