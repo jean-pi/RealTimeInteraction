@@ -18,6 +18,10 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
   * *Declaración:* El Contenedor Padre NO intercepta ni detiene los eventos del puntero (`PointerEvents`) para pasarlos como propiedades reactivas a sus hijos.
   * *Razón de diseño:* Evitar el cuello de botella del ciclo de renderizado de React. Los módulos hijos (ej. Módulo 2) deben escuchar directamente al DOM nativo para mantener los 60 FPS y capturar telemetría pura (ej. presión del lápiz).
 
+* **ANTI-02: Prohibición de Zoom Manual (Pinch-to-Zoom)**
+  * *Declaración:* El sistema bloquea el gesto de zoom nativo del navegador y prohíbe la alteración manual de la escala mediante pellizcos (Pinch) o scroll de rueda.
+  * *Razón de diseño:* Proteger la integridad geométrica. La variable `Scale` es autoritaria y su único controlador permitido es el algoritmo de adaptación al ancho físico.
+
 ---
 
 ## 2. Reglas de Negocio (RN)
@@ -53,7 +57,12 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
 ### RN-06: Exposición del Estado de Cámara (Viewport Context)
 * **RN-06.1.** Como "Dueño de la Cámara", el Módulo 1.5 está obligado a exponer un estado global reactivo de solo lectura (ej. vía Context) con las variables: `{ scale, cameraX, cameraY }`.
 * **RN-06.2.** Los módulos hijos (M2 y M3) consumirán estas variables para poder traducir de forma autónoma sus propios eventos físicos (`e.clientX`) a coordenadas lógicas puras durante el dibujo o arrastre.
+* **RN-06.3. Mutación Física:** El Módulo 1.5 debe escuchar eventos de `resize` y `orientationchange`. Al rotar un dispositivo o cambiar el tamaño de la ventana, el `Scale` y los límites lógicos deben recalcularse de forma instantánea.
 
 ### RN-07: La "Prisión Geométrica" (Bounding Box de Ventanas)
 * **RN-07.1.** Matemáticamente, el Área Segura va desde `X: -960, Y: -540` hasta `X: 960, Y: 540`. Esta es la única zona garantizada como visible y "alcanzable" para el 100% de los dispositivos (sin importar su Aspect Ratio o Sangría).
 * **RN-07.2.** M1.5 **delega** la aplicación de este límite al **Módulo 3**. El Gestor de Ventanas leerá este Bounding Box y creará la física de colisión (Clamping) para evitar que un usuario arrastre una ventana hacia su zona de sangría ciega.
+
+### RN-08: Rendimiento de Renderizado (Aceleración GPU)
+* **RN-08.1.** El contenedor principal que recibe las transformaciones de escala y paneo debe estar forzosamente acelerado por hardware mediante CSS (ej. `will-change: transform` o `transform: translateZ(0)`).
+* **RN-08.2.** Esto congela el estado visual de los hijos en la memoria de video (VRAM), evitando que el navegador ejecute operaciones de repintado masivo (Re-paint) sobre trazos complejos o iframes durante el paneo de la cámara, garantizando los 60 FPS.
