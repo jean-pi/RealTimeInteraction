@@ -42,3 +42,8 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
 * **STAGE-03: Navegación Limitada (Paneo Exclusivo para Móviles)**
   * *Declaración:* El paneo libre (arrastrar la pantalla) está estrictamente desactivado en Tablets y Desktop, ya que la regla `STAGE-02` garantiza que todo el ancho de trabajo sea visible.
   * *Excepción Móvil:* En teléfonos celulares (ej. pantallas verticales 9:16), el escalado por ancho haría que los elementos fueran microscópicos. Solo en celulares se omite la regla de encaje de ancho; el lienzo se muestra a una escala ampliada y se habilita una "Cámara Virtual" que permite al usuario arrastrar el dedo (paneo) para navegar manualmente por el lienzo lógico.
+
+* **STAGE-04: Sincronización de Telepresencia (Cursores)**
+  * *Declaración:* El renderizado y sincronización de los cursores de los usuarios recae exclusivamente en este módulo, no en la Pizarra (M2).
+  * *Mecanismo de Red:* Módulo 1.5 utiliza la red multiplexada del Módulo 1 para enviar sus propias coordenadas lógicas y escuchar las de los demás. Para no saturar el servidor, la emisión de coordenadas se regula mediante *Throttling* (ej. 30 actualizaciones por segundo).
+  * *Renderizado Visual:* Al recibir coordenadas remotas, el módulo dibuja los cursores en la capa superior absoluta (High Z-Index) interpolando el movimiento mediante transiciones CSS, y usa la lista de `activeUsers` del Módulo 1 para pintar la flecha del color e identidad correspondientes.
