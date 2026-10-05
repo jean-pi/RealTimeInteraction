@@ -130,3 +130,17 @@ Esta separación en **4 Bounded Contexts**:
 4. Permite que la especificación de cada módulo sea concisa, independiente y directamente ejecutable mediante TDD.
 
 ---
+
+## 6. Autonomía de Eventos (El Secuestro de Coordenadas)
+
+En la arquitectura tradicional de React, el componente Padre (Módulo 1.5) capturaría el evento `onPointerMove`, calcularía las coordenadas lógicas de acuerdo a la escala y el paneo, y le pasaría las coordenadas "limpias" al Hijo (Módulo 2) a través de *Props*. 
+
+**El Anti-Patrón (Secuestro de Coordenadas):** 
+Si el Padre hace la matemática y se la inyecta al hijo, obligamos a React a actualizar sus *Props* y disparar re-renders 60 veces por segundo durante un trazo continuo. Esto destruye el rendimiento (Context Thrashing).
+
+**El Patrón de Autonomía Invertida (Zero Re-renders):**
+Para lograr los 60 FPS sin *lag*, se invierte la responsabilidad arquitectónica:
+1. El Padre (M1.5) **no pasa Props**. Solo administra un *Agnostic Store* (Vanilla JS/Zustand) que guarda silenciosamente el estado `{scale, cameraX, cameraY}`.
+2. El **Módulo 2 (Pizarra)** es proactivo: escucha el evento nativo del navegador directo del hardware (`e.clientX`, `e.clientY`).
+3. En el milisegundo exacto del toque, la Pizarra consulta el *Agnostic Store* del Padre por demanda, ejecuta su propia matemática `(Pixel Físico / Escala = Coordenada Lógica)` y dibuja en el `<canvas>`.
+4. **Resultado:** Se puentea por completo el ciclo de vida de React. El Módulo 2 no "espera" a que el Padre le dé las coordenadas procesadas; caza el evento crudo y lo normaliza de forma autónoma, garantizando 60 FPS fijos.
