@@ -54,10 +54,11 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
 * **RN-05.3.** Para prevenir la saturación de red, la emisión local de coordenadas aplica *Throttling* (aceleración regulada, ej. 30 fps).
 * **RN-05.4.** El renderizado inyecta los cursores como nodos DOM directamente dentro del contenedor escalado. No hay traducción matemática en Javascript para la telepresencia; la tarjeta gráfica (CSS) escala la posición automáticamente.
 
-### RN-06: Exposición del Estado de Cámara (Viewport Context)
-* **RN-06.1.** Como "Dueño de la Cámara", el Módulo 1.5 está obligado a exponer un estado global reactivo de solo lectura (ej. vía Context) con las variables: `{ scale, cameraX, cameraY }`.
-* **RN-06.2.** Los módulos hijos (M2 y M3) consumirán estas variables para poder traducir de forma autónoma sus propios eventos físicos (`e.clientX`) a coordenadas lógicas puras durante el dibujo o arrastre.
-* **RN-06.3. Mutación Física:** El Módulo 1.5 debe escuchar eventos de `resize` y `orientationchange`. Al rotar un dispositivo o cambiar el tamaño de la ventana, el `Scale` y los límites lógicos deben recalcularse de forma instantánea.
+### RN-06: Exposición del Estado de Cámara (Agnostic Store)
+* **RN-06.1. Framework Agnosticism:** El Módulo 1.5 está obligado a exponer las variables de la cámara (`{ scale, cameraX, cameraY }`) a través de un **Almacén de estado puro (Vanilla JS/TS)** independiente de cualquier framework visual (ej. patrón Observer o Event Emitter).
+* **RN-06.2. Prohibición de Acoplamiento UI:** Queda estrictamente prohibido usar el gestor de estado interno del Framework de renderizado (ej. `React Context` o `useState`) para alojar o servir estos datos. El estado espacial pertenece al Dominio Core de la aplicación, no a la capa de Vistas.
+* **RN-06.3.** Los módulos hijos (M2 y M3) consultarán este almacén agnóstico por demanda para traducir sus propios eventos físicos (`e.clientX`) a coordenadas lógicas puras, garantizando un rendimiento libre de re-renders.
+* **RN-06.4. Mutación Física:** El Módulo 1.5 debe escuchar eventos de `resize` y `orientationchange`. Al rotar un dispositivo o cambiar el tamaño de la ventana, el `Scale` y los límites lógicos deben recalcularse de forma instantánea.
 
 ### RN-07: La "Prisión Geométrica" (Bounding Box de Ventanas)
 * **RN-07.1.** Matemáticamente, el Área Segura va desde `X: -960, Y: -540` hasta `X: 960, Y: 540`. Esta es la única zona garantizada como visible y "alcanzable" para el 100% de los dispositivos (sin importar su Aspect Ratio o Sangría).
