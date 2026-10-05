@@ -525,6 +525,27 @@ El comportamiento de aislar múltiples carpetas `node_modules` utilizando `pnpm`
 **Impacto de la Decisión:**
 Esta estrategia garantiza que cada pieza de software dentro del monorepo es estrictamente declarativa y autocontenida. Al forzar esta validación de dependencias locales, aseguramos que la portabilidad de los Módulos (Bounded Contexts) o Apps esté garantizada, logrando un verdadero desacoplamiento a nivel de infraestructura.
 
+---
+
+## 04/10/2026 - Separation of Concerns vs Velocidad (El Agnosticismo del Dominio)
+
+Durante el diseño del Módulo 1.5 (Gestor de Cámara y Layout a 60 FPS), surgió el debate arquitectónico sobre usar las herramientas reactivas del framework UI (`React Context`, `useState`) para propagar las coordenadas matemáticas del viewport hacia los módulos hijos.
+
+**Descubrimiento Arquitectónico: El Infierno del "Context Thrashing" y la Esclavitud al Framework**
+
+Usar el framework (React) para agilizar la sincronización de estado es la decisión correcta para la **Interfaz Superficial (UI superficial)** (modales, menús, botones), donde los cambios son de baja frecuencia. React fue diseñado como una "impresora declarativa" para datos estables.
+
+Sin embargo, cuando la aplicación entra al terreno del **Dominio Físico/Matemático de Alta Frecuencia** (coordenadas de ratón a 60 FPS, WebSockets, colisiones, cámara, transformaciones espaciales), usar React se convierte en un anti-patrón catastrófico por dos motivos:
+
+1. **Destrucción del Rendimiento (Context Thrashing):** La reconciliación del Virtual DOM no soporta ciclos de 60 FPS continuos. Si un `React Context` almacena el valor `cameraX`, cada arrastre del usuario provocará un "re-render" en cascada sobre miles de nodos SVG e iFrames. El hardware colapsará.
+2. **Violación de Clean Architecture (Acoplamiento de Dominio):** La matemática espacial y la física de colisión le pertenecen al "Core" de la aplicación. Si se almacenan en un `useState` o un `Context`, el Core queda esclavizado a React. El día que se migre la Pizarra Vectorial a Vanilla WebGL o WebAssembly, todo el código será inservible.
+
+**La Solución: El "Agnostic Store" Transitorio**
+El estado de la cámara y las posiciones físicas deben almacenarse en un **Almacén Agnóstico (Vanilla JS/TS)** (ej. patrón Observer puro o Zustand). Los módulos leen este estado **por demanda** de forma silenciosa, sin despertar el ciclo de renderizado (Zero Re-renders). 
+
+**Impacto de la Decisión:**
+Consagra la regla de Clean Architecture: *"React es solo la impresora tonta"*. El Dominio calcula la física en JS puro, y le ordena a React qué pintar solo al final.
+
 
 
 
