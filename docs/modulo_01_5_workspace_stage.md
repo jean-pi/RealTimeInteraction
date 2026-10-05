@@ -39,7 +39,7 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
 ### RN-03: Navegación y Paneo Móvil
 * **RN-03.1.** El paneo libre (arrastrar la pantalla entera) está desactivado en resoluciones de Tablet y Desktop, ya que la regla RN-02 asegura la visibilidad del ancho total.
 * **RN-03.2. Excepción Móvil:** En teléfonos celulares (pantallas verticales), se suspende el encaje por ancho. El lienzo se inicializa con un zoom predeterminado y se habilita una "Cámara Virtual" (Paneo manual).
-* **RN-03.3. Desambiguación de Gestos:** El permiso para ejecutar el paneo en móviles es dictado por la herramienta activa del **Módulo 2** (ej. herramienta "Mano"). El Módulo 1.5 solo obedece la variable de estado habilitada por los módulos funcionales para saber cuándo mover la cámara y cuándo ignorar el evento.
+* **RN-03.3. Desambiguación de Gestos:** El permiso para ejecutar el paneo en móviles es dictado por el **Estado Global de Interacción (Toolbar)**, no por el motor de dibujo. El Módulo 1.5 solo obedece a un estado global (ej. `InteractionMode === PAN` o "Herramienta Mano") para saber cuándo mover la cámara y cuándo dejar pasar el toque a la pizarra.
 
 ### RN-04: Estratificación Estricta (El Sándwich de Z-Index)
 * **RN-04.1.** El Módulo 1.5 impone un orden estricto de renderizado (Z-Index) de fondo a frente:

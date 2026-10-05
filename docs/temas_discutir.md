@@ -74,8 +74,8 @@ El Módulo 01 es la autoridad central de presencia. No conoce la interfaz gráfi
 * **Contrato Matemático de Espacio (Resolución Virtual Fija):** Se establece la prohibición estricta de *Zoom* y *Pan*. El lienzo tiene una resolución interna fija (ej. `1920x1080`). La única transformación espacial es un escalado CSS proporcional para ajustar este lienzo al tamaño del monitor del usuario (`object-fit: contain`).
   $$\text{coordenada}_{\text{interna}} = \text{coordenada}_{\text{pantalla}} \times \text{factor\_de\_escala\_monitor}$$
 * **Aislamiento de Renderizado (El Híbrido DOM/Canvas):**
-  * La **Pizarra (Módulo 02)** opera al **fondo** (`z-index: 1`) en un Canvas 2D estático.
-  * Las **Ventanas (Módulo 03)** se renderizan al **frente** (`z-index: 10`) como elementos del DOM HTML.
+  * La **Pizarra (Módulo 02)** opera al **fondo absoluto** (`z-index: 0`) en un Canvas 2D estático.
+  * Las **Ventanas (Módulo 03)** se renderizan al **frente** (`z-index: 100`) como elementos del DOM HTML, respetando la estratificación formal de niveles (0, 100, 500, 1000).
 * **Modo de Interacción (Pointer Events):** Cuando se dibuja, el Canvas intercepta los clics (`pointer-events: auto`). Al usar la herramienta "Puntero/Selección", el Canvas se vuelve invisible a los clics (`pointer-events: none`), permitiendo al usuario arrastrar e interactuar con las ventanas del Módulo 03 de forma nativa.
 
 ### Contrato C: Patrón Host-Plugin (Módulo 03 ◄──► Módulo 04)

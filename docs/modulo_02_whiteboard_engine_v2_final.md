@@ -27,9 +27,9 @@ Este módulo es el responsable exclusivo de la **captura, renderizado y sincroni
   * *Declaración:* Durante una sesión en vivo (`ACTIVE`), un trazo confirmado no puede ser alterado en su geometría, color o puntos intermedios. **Solo** el Borrado Total del Host (RN-04) tiene autoridad para truncar o reemplazar los trazos históricos.
   * *Razón de diseño:* Mantener una arquitectura temporal de *Append-Only* en tiempo real elimina de raíz las condiciones de carrera (Race Conditions) al sincronizar clientes.
 
-* **ANTI-04: Referencia al Contenedor Padre (Workspace Stage)**
-  * *Declaración:* El motor de pizarra NO determina el tamaño físico de su espacio ni controla la cámara. El origen absoluto `(0,0)` y el paneo son manejados por el **Módulo 1.5**. 
-  * *Razón de diseño:* El motor asume que recibe coordenadas limpias y normalizadas de un contenedor superior, garantizando su agnosticismo visual.
+* **ANTI-04: Normalización Autónoma (Dependencia del Agnostic Store)**
+  * *Declaración:* El motor de pizarra NO determina el tamaño físico de su espacio ni controla la cámara. El origen absoluto `(0,0)` y la escala matemática son manejados por el **Módulo 1.5**. 
+  * *Razón de diseño:* El Módulo 2 atrapa los eventos nativos crudos (`e.clientX`) y tiene la estricta obligación de consultar el **Almacén Agnóstico de Cámara** del M1.5 para traducir por su cuenta ese clic físico a coordenadas lógicas puras. No debe "esperar" a que React le inyecte coordenadas procesadas.
 
 * **ANTI-05: Prohibición de Reloj Local para Ordenamiento (Z-Index)**
   * *Declaración:* El frontend tiene estrictamente prohibido determinar el orden de superposición visual de los trazos basándose en su reloj local (`timestamp`).
