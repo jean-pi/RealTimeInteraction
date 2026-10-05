@@ -48,4 +48,12 @@ Este módulo es el **Escenario Principal (Shell)** de la aplicación. Su única 
 * **RN-05.1.** El renderizado visual de los cursores remotos de la sala recae exclusivamente en el Contenedor Padre.
 * **RN-05.2.** Utiliza la red multiplexada del Módulo 1 para enviar sus propias coordenadas lógicas y escuchar las de los demás.
 * **RN-05.3.** Para prevenir la saturación de red, la emisión local de coordenadas aplica *Throttling* (aceleración regulada, ej. 30 fps).
-* **RN-05.4.** El renderizado interpola el movimiento remoto mediante transiciones CSS y usa la lista de presencia para asignar colores e identidad.
+* **RN-05.4.** El renderizado inyecta los cursores como nodos DOM directamente dentro del contenedor escalado. No hay traducción matemática en Javascript para la telepresencia; la tarjeta gráfica (CSS) escala la posición automáticamente.
+
+### RN-06: Exposición del Estado de Cámara (Viewport Context)
+* **RN-06.1.** Como "Dueño de la Cámara", el Módulo 1.5 está obligado a exponer un estado global reactivo de solo lectura (ej. vía Context) con las variables: `{ scale, cameraX, cameraY }`.
+* **RN-06.2.** Los módulos hijos (M2 y M3) consumirán estas variables para poder traducir de forma autónoma sus propios eventos físicos (`e.clientX`) a coordenadas lógicas puras durante el dibujo o arrastre.
+
+### RN-07: La "Prisión Geométrica" (Bounding Box de Ventanas)
+* **RN-07.1.** Matemáticamente, el Área Segura va desde `X: -960, Y: -540` hasta `X: 960, Y: 540`. Esta es la única zona garantizada como visible y "alcanzable" para el 100% de los dispositivos (sin importar su Aspect Ratio o Sangría).
+* **RN-07.2.** M1.5 **delega** la aplicación de este límite al **Módulo 3**. El Gestor de Ventanas leerá este Bounding Box y creará la física de colisión (Clamping) para evitar que un usuario arrastre una ventana hacia su zona de sangría ciega.
